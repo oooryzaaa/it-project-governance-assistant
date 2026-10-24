@@ -1,0 +1,19 @@
+# Dependensi Node.js
+node_modules/
+
+# File environment — JANGAN pernah di-commit
+.env
+
+# Log
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo

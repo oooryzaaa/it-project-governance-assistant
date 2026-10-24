@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asisten Tata Kelola Proyek TI</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Print styles: sembunyikan elemen non-dokumen saat cetak -->
+  <style>
+    @media print {
+      .no-print { display: none !important; }
+      body { font-size: 11pt; }
+      .card { box-shadow: none !important; break-inside: avoid; }
+      #output-section { display: block !important; }
+    }
+    /* Custom scrollbar for tables */
+    .table-wrap { overflow-x: auto; }
+    /* Indented WBS rows */
+    .wbs-l2 td:nth-child(2) { padding-left: 1.5rem; }
+    .wbs-l3 td:nth-child(2) { padding-left: 3rem; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 font-sans">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="bg-blue-700 text-white shadow-md no-print" role="banner">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div>
+        <h1 class="text-xl font-bold tracking-tight">🗂 Asisten Tata Kelola Proyek TI</h1>
+        <p class="text-blue-200 text-sm mt-0.5">Alat bantu perencanaan proyek &amp; tinjauan COBIT 2019 untuk mahasiswa dan tim kecil</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="mode-badge" class="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300">Mode: Template</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────── -->
+  <main class="max-w-5xl mx-auto px-4 py-8 space-y-8">
+
+    <!-- ── Form Input ──────────────────────────────────────────────────── -->
+    <section id="section-form" class="card bg-white rounded-2xl shadow-sm border border-slate-200 p-6 no-print" aria-labelledby="form-heading">
+      <h2 id="form-heading" class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <span class="inline-block w-2 h-6 bg-blue-600 rounded-full"></span>
+        Informasi Proyek
+      </h2>
+
+      <!-- Error container -->
+      <div id="form-errors" class="hidden mb-4 p-3 bg-red-50 border border-red-300 text-red-700 rounded-lg text-sm" role="alert" aria-live="polite"></div>
+
+      <!-- Fallback notice -->
+      <div id="fallback-notice" class="hidden mb-4 p-3 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg text-sm flex items-center gap-2" role="status" aria-live="polite">
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+        <span></span>
+      </div>
+
+      <form id="project-form" novalidate>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+          <!-- Nama Proyek -->
+          <div class="md:col-span-2">
+            <label for="project-name" class="block text-sm font-medium text-slate-700 mb-1">
+              Nama Proyek <span class="text-red-500" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="project-name"
+              type="text"
+              placeholder="Contoh: Sistem Informasi Perpustakaan Digital"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition"
+              maxlength="200"
+              required
+              aria-required="true"
+            />
+          </div>
+
+          <!-- Tujuan Proyek -->
+          <div class="md:col-span-2">
+            <label for="objective" class="block text-sm font-medium text-slate-700 mb-1">
+              Tujuan Proyek <span class="text-red-500" aria-hidden="true">*</span>
+            </label>
+            <textarea
+              id="objective"
+              rows="3"
+              placeholder="Deskripsikan tujuan utama proyek, masalah yang diselesaikan, dan manfaat yang diharapkan."
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition resize-y"
+              maxlength="1000"
+              required
+              aria-required="true"
+            ></textarea>
+          </div>
+
+          <!-- Durasi -->
+          <div>
+            <label for="duration" class="block text-sm font-medium text-slate-700 mb-1">
+              Durasi Proyek (minggu) <span class="text-red-500" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="duration"
+              type="number"
+              placeholder="Contoh: 16"
+              min="1"
+              max="520"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition"
+              required
+              aria-required="true"
+            />
+          </div>
+
+          <!-- Ukuran Tim -->
+          <div>
+            <label for="team-size" class="block text-sm font-medium text-slate-700 mb-1">
+              Ukuran Tim (orang) <span class="text-red-500" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="team-size"
+              type="number"
+              placeholder="Contoh: 5"
+              min="1"
+              max="500"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition"
+              required
+              aria-required="true"
+            />
+          </div>
+
+          <!-- Kategori Proyek -->
+          <div>
+            <label for="category" class="block text-sm font-medium text-slate-700 mb-1">
+              Kategori Proyek <span class="text-red-500" aria-hidden="true">*</span>
+            </label>
+            <select
+              id="category"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition bg-white"
+              required
+              aria-required="true"
+            >
+              <option value="">-- Pilih Kategori --</option>
+              <option value="web">Aplikasi Web</option>
+              <option value="mobile">Aplikasi Mobile</option>
+              <option value="data_ai">Data / AI</option>
+              <option value="infrastructure">Infrastruktur TI</option>
+            </select>
+          </div>
+
+          <!-- Kisaran Anggaran -->
+          <div>
+            <label for="budget-range" class="block text-sm font-medium text-slate-700 mb-1">
+              Kisaran Anggaran <span class="text-red-500" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="budget-range"
+              type="text"
+              placeholder="Contoh: Rp 50.000.000 – Rp 100.000.000"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition"
+              maxlength="200"
+              required
+              aria-required="true"
+            />
+          </div>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="mt-6 flex flex-col sm:flex-row gap-3">
+          <button
+            id="btn-template"
+            type="button"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold py-2.5 px-5 rounded-lg transition focus:ring-2 focus:ring-blue-500 focus:outline-none flex items-center justify-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Generate Template
+          </button>
+          <button
+            id="btn-ai"
+            type="button"
+            class="flex-1 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold py-2.5 px-5 rounded-lg transition focus:ring-2 focus:ring-emerald-500 focus:outline-none flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <!-- Spinner (hidden by default) -->
+            <svg id="spinner" class="hidden w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+            </svg>
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.347.347A3.375 3.375 0 0112 18.375a3.375 3.375 0 01-2.392-.99l-.347-.347z"/>
+            </svg>
+            Generate dengan AI
+          </button>
+        </div>
+        <p class="mt-2 text-xs text-slate-500">
+          <strong>Template</strong>: bekerja tanpa internet. <strong>AI</strong>: memerlukan server aktif dan API key Gemini.
+          Jika AI gagal, otomatis beralih ke template.
+        </p>
+      </form>
+    </section>
+
+    <!-- ── Output Section ─────────────────────────────────────────────────── -->
+    <div id="output-section">
+
+      <!-- Project Charter -->
+      <section id="section-charter" class="hidden card bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6" aria-labelledby="charter-heading">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h2 id="charter-heading" class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span class="inline-block w-2 h-6 bg-blue-600 rounded-full"></span>
+            Project Charter
+          </h2>
+          <button id="export-charter" class="no-print text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded px-3 py-1 transition focus:ring-1 focus:ring-blue-400 focus:outline-none"
+            aria-label="Ekspor Project Charter ke CSV">
+            ↓ Ekspor CSV
+          </button>
+        </div>
+        <div id="charter-content"></div>
+      </section>
+
+      <!-- WBS -->
+      <section id="section-wbs" class="hidden card bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6" aria-labelledby="wbs-heading">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h2 id="wbs-heading" class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span class="inline-block w-2 h-6 bg-blue-600 rounded-full"></span>
+            Work Breakdown Structure (WBS)
+          </h2>
+          <button id="export-wbs" class="no-print text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded px-3 py-1 transition focus:ring-1 focus:ring-blue-400 focus:outline-none"
+            aria-label="Ekspor WBS ke CSV">
+            ↓ Ekspor CSV
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table class="w-full text-sm border-collapse" role="grid">
+            <thead>
+              <tr class="bg-slate-100 text-slate-600 text-left">
+                <th scope="col" class="px-3 py-2 font-semibold rounded-tl-lg">ID</th>
+                <th scope="col" class="px-3 py-2 font-semibold">Nama</th>
+                <th scope="col" class="px-3 py-2 font-semibold text-center">Level</th>
+                <th scope="col" class="px-3 py-2 font-semibold">Deliverable</th>
+                <th scope="col" class="px-3 py-2 font-semibold rounded-tr-lg">Kriteria Penyelesaian</th>
+              </tr>
+            </thead>
+            <tbody id="wbs-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Risk Register -->
+      <section id="section-risk" class="hidden card bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6" aria-labelledby="risk-heading">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h2 id="risk-heading" class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span class="inline-block w-2 h-6 bg-red-500 rounded-full"></span>
+            Risk Register
+          </h2>
+          <button id="export-risk" class="no-print text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded px-3 py-1 transition focus:ring-1 focus:ring-blue-400 focus:outline-none"
+            aria-label="Ekspor Risk Register ke CSV">
+            ↓ Ekspor CSV
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table class="w-full text-sm border-collapse" role="grid">
+            <thead>
+              <tr class="bg-slate-100 text-slate-600 text-left">
+                <th scope="col" class="px-3 py-2 font-semibold rounded-tl-lg">ID</th>
+                <th scope="col" class="px-3 py-2 font-semibold">Deskripsi Risiko</th>
+                <th scope="col" class="px-3 py-2 font-semibold text-center">Probabilitas</th>
+                <th scope="col" class="px-3 py-2 font-semibold text-center">Dampak</th>
+                <th scope="col" class="px-3 py-2 font-semibold rounded-tr-lg">Mitigasi</th>
+              </tr>
+            </thead>
+            <tbody id="risk-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Cost Estimate -->
+      <section id="section-cost" class="hidden card bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6" aria-labelledby="cost-heading">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+          <h2 id="cost-heading" class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span class="inline-block w-2 h-6 bg-green-600 rounded-full"></span>
+            Estimasi Biaya
+          </h2>
+          <button id="export-cost" class="no-print text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded px-3 py-1 transition focus:ring-1 focus:ring-blue-400 focus:outline-none"
+            aria-label="Ekspor Estimasi Biaya ke CSV">
+            ↓ Ekspor CSV
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 mb-3 no-print">Kamu dapat mengedit jam dan tarif per baris; subtotal akan dihitung otomatis.</p>
+        <div class="table-wrap">
+          <table class="w-full text-sm border-collapse" role="grid">
+            <thead>
+              <tr class="bg-slate-100 text-slate-600 text-left">
+                <th scope="col" class="px-3 py-2 font-semibold rounded-tl-lg">Kategori</th>
+                <th scope="col" class="px-3 py-2 font-semibold text-center">Jam</th>
+                <th scope="col" class="px-3 py-2 font-semibold text-center">Tarif (IDR/jam)</th>
+                <th scope="col" class="px-3 py-2 font-semibold text-right rounded-tr-lg">Subtotal (IDR)</th>
+              </tr>
+            </thead>
+            <tbody id="cost-tbody"></tbody>
+            <tfoot>
+              <tr class="bg-slate-50 font-bold border-t-2 border-slate-300">
+                <td class="px-3 py-2" colspan="3">TOTAL ESTIMASI</td>
+                <td class="px-3 py-2 text-right" id="cost-total">Rp 0</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">* Semua nilai adalah estimasi. Sesuaikan dengan kondisi aktual tim dan proyek.</p>
+      </section>
+
+      <!-- Assumptions -->
+      <section id="section-assumptions" class="hidden card bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6" aria-labelledby="assumptions-heading">
+        <h2 id="assumptions-heading" class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <span class="inline-block w-2 h-6 bg-amber-500 rounded-full"></span>
+          Asumsi
+        </h2>
+        <div id="assumptions-content"></div>
+      </section>
+
+      <!-- Governance Review -->
+      <section id="section-governance" class="hidden card bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-6" aria-labelledby="governance-heading">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-1">
+          <h2 id="governance-heading" class="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <span class="inline-block w-2 h-6 bg-purple-600 rounded-full"></span>
+            Tinjauan Tata Kelola (COBIT 2019)
+          </h2>
+          <button id="export-governance" class="no-print text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 rounded px-3 py-1 transition focus:ring-1 focus:ring-blue-400 focus:outline-none"
+            aria-label="Ekspor Tinjauan Governance ke CSV">
+            ↓ Ekspor CSV
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 mb-4">
+          Pemetaan menggunakan objective dari <code class="bg-slate-100 px-1 rounded">cobit-data.js</code>.
+          Isi file tersebut dengan data COBIT 2019 resmi dari ISACA untuk mengaktifkan fitur ini sepenuhnya.
+        </p>
+
+        <!-- COBIT Mappings -->
+        <h3 class="font-semibold text-slate-700 text-sm mb-2 mt-4">Pemetaan Objective COBIT 2019</h3>
+        <div id="cobit-mappings" class="space-y-2 mb-6"></div>
+
+        <!-- KPIs -->
+        <h3 class="font-semibold text-slate-700 text-sm mb-2">KPI yang Disarankan</h3>
+        <div id="kpi-list" class="space-y-2 mb-6"></div>
+
+        <!-- Score -->
+        <h3 class="font-semibold text-slate-700 text-sm mb-2">
+          Skor Kesesuaian Indikatif
+          <span class="ml-1 text-xs font-normal text-slate-400">(bukan hasil audit atau penilaian maturitas)</span>
+        </h3>
+        <div id="score-content"></div>
+      </section>
+
+      <!-- Export / Print Bar -->
+      <div id="export-bar" class="hidden no-print flex flex-col sm:flex-row gap-3 justify-end mt-2">
+        <button
+          id="btn-print"
+          class="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white font-medium py-2 px-4 rounded-lg text-sm transition focus:ring-2 focus:ring-slate-500 focus:outline-none"
+          aria-label="Cetak atau simpan sebagai PDF"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+          </svg>
+          Cetak / Simpan PDF
+        </button>
+      </div>
+
+    </div><!-- /#output-section -->
+
+  </main>
+
+  <!-- ── Footer ───────────────────────────────────────────────────────────── -->
+  <footer class="mt-12 pb-6 text-center text-xs text-slate-400 no-print">
+    <p>
+      Asisten Tata Kelola Proyek TI &bull; Dibuat untuk mahasiswa dan tim proyek kecil Indonesia<br/>
+      Skor yang ditampilkan adalah <strong>skor kesesuaian indikatif</strong> — bukan hasil audit atau penilaian maturitas.
+    </p>
+  </footer>
+
+  <!-- Scripts -->
+  <!-- cobit-data.js harus dimuat sebelum app.js -->
+  <script src="cobit-data.js"></script>
+  <script src="app.js"></script>
+
+</body>
+</html>
