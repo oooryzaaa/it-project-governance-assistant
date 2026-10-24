@@ -559,25 +559,36 @@ function exportCSV(section) {
 function renderBadge(mode) {
   const badge = $("mode-badge");
   if (!badge) return;
-  if (mode === "ai") {
-    badge.textContent = "Mode: AI";
-    badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300";
-  } else {
-    badge.textContent = "Mode: Template";
-    badge.className = "px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-300";
-  }
+  // Inner dot + text — preserve the span dot inside the badge
+  const dotColor = mode === "ai" ? "bg-emerald-500" : "bg-blue-500";
+  const label    = mode === "ai" ? "Mode: AI" : "Mode: Template";
+  const cls      = mode === "ai" ? "badge-ai" : "badge-template";
+  badge.className = `${cls} inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold`;
+  badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full ${dotColor} inline-block"></span>${label}`;
 }
 
 function renderFallbackNotice(reason) {
   const notice = $("fallback-notice");
   if (!notice) return;
-  notice.textContent = `Mode template (AI tidak tersedia) — ${reason}`;
+  // The notice div uses flex layout; write into the <span class="font-medium"> child
+  const span = notice.querySelector("span");
+  const msg = `Mode template (AI tidak tersedia) — ${reason}`;
+  if (span) {
+    span.textContent = msg;
+  } else {
+    notice.textContent = msg;
+  }
   notice.classList.remove("hidden");
+  // Ensure flex display is restored (Tailwind hidden overrides display)
+  notice.style.display = "flex";
 }
 
 function clearFallbackNotice() {
   const notice = $("fallback-notice");
-  if (notice) notice.classList.add("hidden");
+  if (notice) {
+    notice.classList.add("hidden");
+    notice.style.display = "";
+  }
 }
 
 function showSection(id) {
@@ -620,36 +631,49 @@ function renderCharter(charter, input) {
   const c = $("charter-content");
   if (!c) return;
 
-  const listHTML = (items) =>
-    `<ul class="list-disc list-inside space-y-1">${items.map((i) => `<li class="text-slate-700">${escHtml(i)}</li>`).join("")}</ul>`;
+  // Render a styled list with check icons
+  const listHTML = (items, iconColor) => {
+    const color = iconColor || "text-blue-500";
+    return `<ul class="space-y-1.5">${items.map((i) => `
+      <li class="flex items-start gap-2 text-slate-700 text-sm">
+        <svg class="w-4 h-4 ${color} shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span>${escHtml(i)}</span>
+      </li>`).join("")}</ul>`;
+  };
+
+  // Objective highlighted block
+  const objectiveBlock = `
+    <div class="mb-5 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+      <p class="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-1">Tujuan Proyek</p>
+      <p class="text-slate-800 text-sm leading-relaxed">${escHtml(charter.objective)}</p>
+    </div>`;
 
   c.innerHTML = `
-    <div class="mb-4">
-      <h4 class="font-semibold text-slate-800 mb-1">Tujuan Proyek</h4>
-      <p class="text-slate-700">${escHtml(charter.objective)}</p>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-      <div>
-        <h4 class="font-semibold text-slate-800 mb-1">Dalam Lingkup (In-Scope)</h4>
-        ${listHTML(charter.in_scope)}
+    ${objectiveBlock}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+      <div class="p-4 bg-white border border-slate-200 rounded-xl">
+        <p class="text-xs font-semibold uppercase tracking-widest text-emerald-600 mb-2">Dalam Lingkup</p>
+        ${listHTML(charter.in_scope, "text-emerald-500")}
       </div>
-      <div>
-        <h4 class="font-semibold text-slate-800 mb-1">Luar Lingkup (Out-of-Scope)</h4>
-        ${listHTML(charter.out_of_scope)}
+      <div class="p-4 bg-white border border-slate-200 rounded-xl">
+        <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Luar Lingkup</p>
+        ${listHTML(charter.out_of_scope, "text-slate-400")}
       </div>
     </div>
-    <div class="mb-4">
-      <h4 class="font-semibold text-slate-800 mb-1">Stakeholder</h4>
-      ${listHTML(charter.stakeholders)}
+    <div class="p-4 bg-white border border-slate-200 rounded-xl mb-4">
+      <p class="text-xs font-semibold uppercase tracking-widest text-purple-500 mb-2">Stakeholder</p>
+      ${listHTML(charter.stakeholders, "text-purple-400")}
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div>
-        <h4 class="font-semibold text-slate-800 mb-1">Deliverable</h4>
-        ${listHTML(charter.deliverables)}
+      <div class="p-4 bg-white border border-slate-200 rounded-xl">
+        <p class="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-2">Deliverable</p>
+        ${listHTML(charter.deliverables, "text-blue-400")}
       </div>
-      <div>
-        <h4 class="font-semibold text-slate-800 mb-1">Milestone</h4>
-        ${listHTML(charter.milestones)}
+      <div class="p-4 bg-white border border-slate-200 rounded-xl">
+        <p class="text-xs font-semibold uppercase tracking-widest text-amber-500 mb-2">Milestone</p>
+        ${listHTML(charter.milestones, "text-amber-400")}
       </div>
     </div>
   `;
@@ -660,14 +684,28 @@ function renderWBS(wbs) {
   if (!tbody) return;
   tbody.innerHTML = wbs
     .map((w) => {
-      const indent = w.level === 2 ? "pl-6" : w.level === 3 ? "pl-12" : "";
-      const weightClass = w.level === 1 ? "font-semibold bg-slate-50" : w.level === 2 ? "bg-white" : "bg-white text-slate-500 text-sm";
-      return `<tr class="${weightClass} border-b border-slate-100">
-        <td class="px-3 py-2 font-mono text-xs">${escHtml(w.id)}</td>
-        <td class="px-3 py-2 ${indent}">${escHtml(w.name)}</td>
-        <td class="px-3 py-2 text-center">${w.level}</td>
-        <td class="px-3 py-2">${escHtml(w.deliverable)}</td>
-        <td class="px-3 py-2">${escHtml(w.completion_criteria)}</td>
+      // Visual hierarchy by level
+      const indent     = w.level === 2 ? "pl-6" : w.level === 3 ? "pl-10" : "";
+      const rowBase    = "border-b border-slate-100 transition-colors";
+      const levelStyle = w.level === 1
+        ? `${rowBase} bg-blue-50/60 font-semibold`
+        : w.level === 2
+        ? `${rowBase} bg-white`
+        : `${rowBase} bg-white text-slate-500 text-xs`;
+
+      // Level badge
+      const levelBadge = w.level === 1
+        ? `<span class="inline-flex items-center justify-center w-5 h-5 rounded bg-blue-600 text-white text-[10px] font-bold">L1</span>`
+        : w.level === 2
+        ? `<span class="inline-flex items-center justify-center w-5 h-5 rounded bg-slate-300 text-slate-700 text-[10px] font-bold">L2</span>`
+        : `<span class="inline-flex items-center justify-center w-5 h-5 rounded bg-slate-200 text-slate-500 text-[10px]">L3</span>`;
+
+      return `<tr class="${levelStyle}">
+        <td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">${escHtml(w.id)}</td>
+        <td class="px-4 py-2.5 ${indent}">${escHtml(w.name)}</td>
+        <td class="px-4 py-2.5 text-center">${levelBadge}</td>
+        <td class="px-4 py-2.5 text-slate-600">${escHtml(w.deliverable)}</td>
+        <td class="px-4 py-2.5 text-slate-600">${escHtml(w.completion_criteria)}</td>
       </tr>`;
     })
     .join("");
@@ -678,19 +716,27 @@ function renderRiskRegister(risks) {
   if (!tbody) return;
 
   const levelBadge = (lvl) => {
-    const map = { low: "bg-green-100 text-green-800", medium: "bg-yellow-100 text-yellow-800", high: "bg-red-100 text-red-800" };
+    const styles = {
+      low:    "bg-emerald-100 text-emerald-800 border border-emerald-200",
+      medium: "bg-amber-100 text-amber-800 border border-amber-200",
+      high:   "bg-red-100 text-red-800 border border-red-200",
+    };
     const label = { low: "Rendah", medium: "Sedang", high: "Tinggi" };
-    return `<span class="px-2 py-0.5 rounded text-xs font-medium ${map[lvl] || "bg-slate-100 text-slate-700"}">${label[lvl] || lvl}</span>`;
+    const dot   = { low: "bg-emerald-500", medium: "bg-amber-500", high: "bg-red-500" };
+    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${styles[lvl] || "bg-slate-100 text-slate-700"}">
+      <span class="w-1.5 h-1.5 rounded-full ${dot[lvl] || "bg-slate-400"} inline-block"></span>
+      ${label[lvl] || lvl}
+    </span>`;
   };
 
   tbody.innerHTML = risks
     .map(
-      (r) => `<tr class="border-b border-slate-100">
-        <td class="px-3 py-2 font-mono text-xs">${escHtml(r.id)}</td>
-        <td class="px-3 py-2">${escHtml(r.description)}</td>
-        <td class="px-3 py-2 text-center">${levelBadge(r.probability)}</td>
-        <td class="px-3 py-2 text-center">${levelBadge(r.impact)}</td>
-        <td class="px-3 py-2">${escHtml(r.mitigation)}</td>
+      (r) => `<tr class="border-b border-slate-100 transition-colors">
+        <td class="px-4 py-3 font-mono text-xs text-slate-500 whitespace-nowrap">${escHtml(r.id)}</td>
+        <td class="px-4 py-3 text-sm">${escHtml(r.description)}</td>
+        <td class="px-4 py-3 text-center whitespace-nowrap">${levelBadge(r.probability)}</td>
+        <td class="px-4 py-3 text-center whitespace-nowrap">${levelBadge(r.impact)}</td>
+        <td class="px-4 py-3 text-sm text-slate-600">${escHtml(r.mitigation)}</td>
       </tr>`
     )
     .join("");
@@ -704,17 +750,19 @@ function renderCostEstimate(costs) {
 
   tbody.innerHTML = costs
     .map(
-      (c, i) => `<tr class="border-b border-slate-100" data-cost-idx="${i}">
-        <td class="px-3 py-2">${escHtml(c.category)}</td>
-        <td class="px-3 py-2 text-center">
-          <input type="number" class="cost-hours w-20 border border-slate-300 rounded px-2 py-0.5 text-right text-sm focus:ring-1 focus:ring-blue-400 focus:outline-none" 
+      (c, i) => `<tr class="border-b border-slate-100 transition-colors" data-cost-idx="${i}">
+        <td class="px-4 py-3 text-sm font-medium text-slate-700">${escHtml(c.category)}</td>
+        <td class="px-4 py-3 text-center">
+          <input type="number"
+            class="cost-hours w-20 border border-slate-300 rounded-lg px-2 py-1 text-right text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 focus:outline-none transition"
             value="${c.hours}" min="0" data-idx="${i}" aria-label="Jam untuk ${escHtml(c.category)}">
         </td>
-        <td class="px-3 py-2 text-center">
-          <input type="number" class="cost-rate w-28 border border-slate-300 rounded px-2 py-0.5 text-right text-sm focus:ring-1 focus:ring-blue-400 focus:outline-none" 
+        <td class="px-4 py-3 text-center">
+          <input type="number"
+            class="cost-rate w-28 border border-slate-300 rounded-lg px-2 py-1 text-right text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 focus:outline-none transition"
             value="${c.rate}" min="0" data-idx="${i}" aria-label="Tarif untuk ${escHtml(c.category)}">
         </td>
-        <td class="px-3 py-2 text-right font-medium cost-subtotal" id="cost-sub-${i}">Rp ${fmt(c.subtotal)}</td>
+        <td class="px-4 py-3 text-right font-semibold text-emerald-700 cost-subtotal" id="cost-sub-${i}">Rp ${fmt(c.subtotal)}</td>
       </tr>`
     )
     .join("");
@@ -758,8 +806,14 @@ function updateCostTotal() {
 function renderAssumptions(assumptions) {
   const container = $("assumptions-content");
   if (!container) return;
-  container.innerHTML = `<ul class="list-disc list-inside space-y-1">
-    ${assumptions.map((a) => `<li class="text-slate-700">${escHtml(a)}</li>`).join("")}
+  container.innerHTML = `<ul class="space-y-2">
+    ${assumptions.map((a) => `
+      <li class="flex items-start gap-2.5 text-sm text-slate-700 p-3 bg-amber-50/60 border border-amber-100 rounded-lg">
+        <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span>${escHtml(a)}</span>
+      </li>`).join("")}
   </ul>`;
 }
 
@@ -775,16 +829,26 @@ function renderCobitMappings(mappings) {
 
   container.innerHTML = mappings
     .map((m) => {
-      const unknownTag = m.unknown
-        ? `<span class="ml-2 px-2 py-0.5 bg-red-100 text-red-700 text-xs rounded font-medium">⚠ Kode tidak dikenal</span>`
+      const isUnknown = m.unknown;
+      const unknownTag = isUnknown
+        ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 text-[10px] rounded-full font-bold border border-red-200">
+             <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+             Kode tidak dikenal
+           </span>`
         : "";
-      return `<div class="p-3 border border-slate-200 rounded-lg ${m.unknown ? "border-red-300 bg-red-50" : "bg-slate-50"}">
-        <div class="flex items-center flex-wrap gap-1 mb-1">
-          <span class="font-mono font-semibold text-blue-700 text-sm">${escHtml(m.code)}</span>
-          ${unknownTag}
-          <span class="text-slate-700 text-sm font-medium">${escHtml(m.name)}</span>
+      const cardCls = isUnknown
+        ? "p-4 border border-red-200 rounded-xl bg-red-50"
+        : "p-4 border border-slate-200 rounded-xl bg-white hover:border-purple-200 transition-colors";
+
+      return `<div class="${cardCls}">
+        <div class="flex items-start justify-between gap-2 mb-1.5">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-mono font-bold text-purple-700 text-xs bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">${escHtml(m.code)}</span>
+            ${unknownTag}
+          </div>
         </div>
-        <p class="text-slate-600 text-sm">${escHtml(m.reason)}</p>
+        <p class="text-slate-700 text-sm font-semibold leading-snug mb-1">${escHtml(m.name)}</p>
+        <p class="text-slate-500 text-xs leading-relaxed">${escHtml(m.reason)}</p>
       </div>`;
     })
     .join("");
@@ -796,13 +860,14 @@ function renderKPIs(kpis) {
 
   container.innerHTML = kpis
     .map(
-      (k) => `<div class="flex gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-        <div class="flex-1">
-          <p class="font-medium text-slate-800 text-sm">${escHtml(k.kpi)}</p>
-          <p class="text-slate-600 text-xs mt-0.5">Target: ${escHtml(k.target)}</p>
+      (k, i) => `<div class="flex items-start gap-3 p-3.5 bg-white border border-slate-200 rounded-xl hover:border-teal-200 transition-colors">
+        <div class="w-6 h-6 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center shrink-0 text-xs font-bold">${i + 1}</div>
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold text-slate-800 text-sm">${escHtml(k.kpi)}</p>
+          <p class="text-slate-500 text-xs mt-0.5 leading-relaxed">🎯 ${escHtml(k.target)}</p>
         </div>
-        <div class="text-right shrink-0">
-          <span class="font-mono text-xs text-blue-600 font-semibold">${escHtml(k.objective)}</span>
+        <div class="shrink-0">
+          <span class="font-mono text-[11px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded">${escHtml(k.objective)}</span>
         </div>
       </div>`
     )
@@ -813,44 +878,79 @@ function renderScore(criteria, total, maxTotal, percentage) {
   const container = $("score-content");
   if (!container) return;
 
-  const color = percentage >= 70 ? "text-emerald-700" : percentage >= 40 ? "text-yellow-700" : "text-red-700";
-  const bgColor = percentage >= 70 ? "bg-emerald-50 border-emerald-200" : percentage >= 40 ? "bg-yellow-50 border-yellow-200" : "bg-red-50 border-red-200";
-
-  const scoreBar = (score, max) => {
-    const pct = Math.round((score / max) * 100);
-    const fill = score === 2 ? "bg-emerald-500" : score === 1 ? "bg-yellow-400" : "bg-red-300";
-    return `<div class="w-16 bg-slate-200 rounded-full h-2 inline-block align-middle"><div class="${fill} h-2 rounded-full" style="width:${pct}%"></div></div>`;
+  // Color scheme by score band
+  const band = percentage >= 70 ? "green" : percentage >= 40 ? "yellow" : "red";
+  const bandCfg = {
+    green:  { text: "text-emerald-700", bg: "bg-emerald-50",  border: "border-emerald-200", grad: "from-emerald-400 to-emerald-600", label: "Baik" },
+    yellow: { text: "text-amber-700",   bg: "bg-amber-50",    border: "border-amber-200",   grad: "from-amber-400 to-amber-600",   label: "Perlu Perhatian" },
+    red:    { text: "text-red-700",     bg: "bg-red-50",      border: "border-red-200",     grad: "from-red-400 to-red-600",       label: "Perlu Perbaikan" },
   };
+  const cfg = bandCfg[band];
+
+  // Arc progress (SVG circle) — r=36, circumference ≈ 226
+  const r = 36, circ = 2 * Math.PI * r;
+  const dash = (percentage / 100) * circ;
+  const scoreArc = `
+    <svg class="w-24 h-24" viewBox="0 0 88 88" aria-hidden="true">
+      <circle cx="44" cy="44" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+      <circle cx="44" cy="44" r="${r}" fill="none"
+        stroke="url(#scoreGrad)" stroke-width="8"
+        stroke-dasharray="${dash.toFixed(1)} ${(circ - dash).toFixed(1)}"
+        stroke-dashoffset="${(circ / 4).toFixed(1)}"
+        stroke-linecap="round"/>
+      <defs>
+        <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" class="stop-color-start"/>
+          <stop offset="100%" class="stop-color-end"/>
+        </linearGradient>
+      </defs>
+    </svg>`;
+
+  const scoreBgGrad = percentage >= 70 ? "#10b981" : percentage >= 40 ? "#f59e0b" : "#ef4444";
+
+  const criteriaRows = criteria.map((c) => {
+    const scoreColor = c.score === 2 ? "text-emerald-600" : c.score === 1 ? "text-amber-600" : "text-red-500";
+    const barFill    = c.score === 2 ? "#10b981" : c.score === 1 ? "#f59e0b" : "#ef4444";
+    const barPct     = Math.round((c.score / c.max) * 100);
+    return `<div class="flex gap-3 items-start p-3.5 bg-white border border-slate-200 rounded-xl hover:border-blue-200 transition-colors">
+      <div class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+        <span class="font-mono text-xs font-bold text-slate-600">${c.id}</span>
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="text-slate-700 text-sm font-semibold">${escHtml(c.label)}</p>
+        <p class="text-slate-400 text-xs mt-0.5 leading-relaxed">${escHtml(c.reason)}</p>
+      </div>
+      <div class="shrink-0 text-right">
+        <span class="text-base font-bold ${scoreColor}">${c.score}<span class="text-slate-300 text-xs">/${c.max}</span></span>
+        <div class="w-16 bg-slate-200 rounded-full h-1.5 mt-1.5">
+          <div class="h-1.5 rounded-full transition-all" style="width:${barPct}%;background:${barFill}"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
 
   container.innerHTML = `
-    <div class="flex items-center justify-between p-4 rounded-xl border ${bgColor} mb-4">
+    <div class="flex flex-col sm:flex-row items-center gap-6 p-5 rounded-2xl border ${cfg.border} ${cfg.bg} mb-5">
+      <div class="relative shrink-0">
+        <svg class="w-24 h-24" viewBox="0 0 88 88" aria-hidden="true">
+          <circle cx="44" cy="44" r="36" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+          <circle cx="44" cy="44" r="36" fill="none"
+            stroke="${scoreBgGrad}" stroke-width="8"
+            stroke-dasharray="${dash.toFixed(1)} ${(circ - dash).toFixed(1)}"
+            stroke-dashoffset="${(circ / 4).toFixed(1)}"
+            stroke-linecap="round"/>
+        </svg>
+        <div class="absolute inset-0 flex flex-col items-center justify-center">
+          <span class="text-2xl font-extrabold ${cfg.text}">${percentage}%</span>
+        </div>
+      </div>
       <div>
-        <p class="text-slate-600 text-sm font-medium">Skor Kesesuaian Indikatif</p>
-        <p class="text-xs text-slate-500 mt-0.5">Bukan hasil audit atau penilaian maturitas</p>
-      </div>
-      <div class="text-right">
-        <p class="text-4xl font-bold ${color}">${percentage}%</p>
-        <p class="text-slate-500 text-xs">${total} / ${maxTotal} poin</p>
+        <p class="font-bold text-slate-800 text-base">${cfg.label}</p>
+        <p class="text-slate-600 text-sm mt-0.5">Skor Kesesuaian Indikatif</p>
+        <p class="text-slate-400 text-xs mt-1">${total} dari ${maxTotal} poin · ${criteria.length} kriteria</p>
       </div>
     </div>
-    <div class="space-y-3">
-      ${criteria
-        .map(
-          (c) => `
-        <div class="flex gap-3 items-start p-3 bg-white border border-slate-200 rounded-lg">
-          <span class="font-mono text-xs font-bold text-slate-500 shrink-0 mt-0.5">${c.id}</span>
-          <div class="flex-1 min-w-0">
-            <p class="text-slate-700 text-sm font-medium">${escHtml(c.label)}</p>
-            <p class="text-slate-500 text-xs mt-0.5">${escHtml(c.reason)}</p>
-          </div>
-          <div class="shrink-0 text-right">
-            <span class="text-sm font-bold ${c.score === 2 ? "text-emerald-600" : c.score === 1 ? "text-yellow-600" : "text-red-500"}">${c.score}/${c.max}</span>
-            <div class="mt-1">${scoreBar(c.score, c.max)}</div>
-          </div>
-        </div>`
-        )
-        .join("")}
-    </div>
+    <div class="space-y-2">${criteriaRows}</div>
   `;
 }
 
@@ -900,16 +1000,21 @@ function getFormData() {
 function showFormErrors(errors) {
   const el = $("form-errors");
   if (!el) return;
-  el.innerHTML = `<ul class="list-disc list-inside">${errors.map((e) => `<li>${escHtml(e)}</li>`).join("")}</ul>`;
+  // The new design has a <div> sibling next to the SVG icon inside form-errors
+  const inner = el.querySelector("div") || el;
+  inner.innerHTML = `<ul class="space-y-0.5">${errors.map((e) => `<li>${escHtml(e)}</li>`).join("")}</ul>`;
   el.classList.remove("hidden");
+  el.style.display = "flex";
   el.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 function clearFormErrors() {
   const el = $("form-errors");
   if (el) {
-    el.innerHTML = "";
+    const inner = el.querySelector("div") || el;
+    inner.innerHTML = "";
     el.classList.add("hidden");
+    el.style.display = "";
   }
 }
 
