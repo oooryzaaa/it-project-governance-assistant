@@ -14,56 +14,19 @@
 
 "use strict";
 
-// ── State aplikasi ──────────────────────────────────────────────────────────
-/** @type {'template'|'ai'} */
-let currentMode = "template";
+// ── Canonical application state and shared utilities ────────────────────────
+const projectStore = globalThis.GovPlanProjectStore;
+const { $, el, parseProjectDate, projectDateAtWeek, formatProjectDate, escHtml } = globalThis.GovPlanUtils;
 
-/** Menyimpan data dokumen terakhir yang di-generate */
-let currentDoc = null;
-
-/** Input form terakhir */
-let currentInput = null;
-
-/**
- * S1.A-4: Cost-edit tracking state.
- * Set to true when the user has made any edits to the cost table (hours,
- * rate, non-labor, or contingency %) since the last generation.  Reset to
- * false after a confirmed re-generation or after a fresh render.
- */
-let costEdited = false;
-
-let generationRequestId = 0;
-
-// ── DOM helpers ─────────────────────────────────────────────────────────────
-const $ = (id) => document.getElementById(id);
-const el = (tag, cls, text) => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text;
-  return e;
-};
-
-function parseProjectDate(value) {
-  const match = typeof value === "string" && value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  if (date.getUTCFullYear() !== Number(match[1]) ||
-      date.getUTCMonth() !== Number(match[2]) - 1 ||
-      date.getUTCDate() !== Number(match[3])) return null;
-  return date;
-}
-
-function projectDateAtWeek(startDate, week) {
-  const date = parseProjectDate(startDate);
-  if (!date || !Number.isFinite(Number(week))) return null;
-  date.setUTCDate(date.getUTCDate() + Math.round(Number(week) * 7));
-  return date;
-}
-
-function formatProjectDate(date, month = "long") {
-  return date && Number.isFinite(date.getTime())
-    ? date.toLocaleDateString("id-ID", { day: "numeric", month, year: "numeric", timeZone: "UTC" })
-    : "";
+// Temporary compatibility aliases keep legacy consumers on the single store.
+for (const [name, getter, setter] of [
+  ["currentMode", () => projectStore.getGenerationMode(), (value) => projectStore.setGenerationMode(value)],
+  ["currentDoc", () => projectStore.getDocument(), (value) => projectStore.setDocument(value)],
+  ["currentInput", () => projectStore.getLastAcceptedInput(), (value) => projectStore.setLastAcceptedInput(value)],
+  ["costEdited", () => projectStore.getCostEdited(), (value) => projectStore.setCostEdited(value)],
+  ["generationRequestId", () => projectStore.getPendingRequestIdentity(), (value) => projectStore.setPendingRequestIdentity(value)],
+]) {
+  Object.defineProperty(globalThis, name, { configurable: true, get: getter, set: setter });
 }
 
 // ── Template data per kategori ──────────────────────────────────────────────
@@ -1335,7 +1298,7 @@ function exportCSV(section) {
       // identity / header fields (Phase 2A)
       ["Nama Proyek",      c.project_title  || ""],
       ["Tanggal Mulai",    c.start_date     || ""],
-      ["Proyeksi Selesai", c.finish_date    || ""],
+      ["Proyeksi Selesai (eksklusif)", c.finish_date    || ""],
       ["Anggaran",         c.budget_info    || ""],
       ["Project Manager",  c.pm_name        || ""],
       ["Metodologi",       c.methodology    || ""],
@@ -1378,6 +1341,39 @@ function exportCSV(section) {
     rows = [["Kode COBIT", "Nama Objective", "Alasan Pemetaan"]];
     if (currentDoc._governance) {
       rows.push(...currentDoc._governance.mappings.map((m) => [m.code, m.name, m.reason]));
+    }
+  } else if (section === "gantt") {
+    filename = "gantt_schedule.csv";
+    rows = [[
+      "WBS ID",
+      "Task",
+      "Level",
+      "Start Date (inclusive)",
+      "Finish Date (exclusive)",
+      "Duration (weeks)",
+      "Predecessor",
+      "Dependency Type",
+      "Lag/Lead (weeks)",
+      "Schedule Basis",
+    ]];
+    rows.push(["Convention", "Start Date is inclusive; Finish Date is exclusive at start + requested duration. System estimates are not approved project baselines.", "", "", "", "", "", "", "", ""]);
+    for (const task of currentDoc._gantt?.tasks || []) {
+      const predecessorNames = (task.dependencies || []).map((dependency) => {
+        const predecessor = currentDoc._gantt.tasks.find((candidate) => candidate.id === dependency.predecessorId);
+        return predecessor ? `${dependency.predecessorId} ${predecessor.name}` : dependency.predecessorId;
+      }).join("; ");
+      rows.push([
+        task.isBuffer ? "BUFFER" : task.wbsId || task.id,
+        task.name,
+        task.level || "",
+        task.startDateStr || `Week ${task.startWeek}`,
+        task.endDateStr || `Week ${task.endWeek}`,
+        task.durationWeeks,
+        predecessorNames || "",
+        task.dependencyType || "",
+        task.lagWeeks ?? 0,
+        task.scheduleBasis || task.assumption || "",
+      ]);
     }
   }
 
@@ -1497,7 +1493,7 @@ function clearAIGenerationState() {
  * Each task: { id, name, isMilestone, startWeek, endWeek, durationWeeks,
  *              startDate?, endDate?, assumption }
  */
-function buildGanttSchedule(wbs, input) {
+function buildPhaseSchedule(wbs, input) {
   const requestedWeeks = Number(input?.duration);
   const totalWeeks = Number.isInteger(requestedWeeks) && requestedWeeks >= 1 && requestedWeeks <= 520
     ? requestedWeeks
@@ -1694,6 +1690,421 @@ function buildGanttSchedule(wbs, input) {
   return { tasks, projectEndWeek: totalWeeks, hasCalendarDates, originDate };
 }
 
+function validateGanttDependencies(tasks, projectEndWeek, knownWbsIds) {
+  const errors = [];
+  const byId = new Map();
+  const hasWbsIds = knownWbsIds instanceof Set;
+  if (!Number.isFinite(projectEndWeek) || projectEndWeek < 1) {
+    errors.push("Horizon proyek harus minimal satu minggu.");
+    return { valid: false, errors };
+  }
+
+  for (const task of tasks) {
+    if (!task || typeof task.id !== "string" || !task.id) {
+      errors.push("Setiap tugas harus memiliki ID.");
+      continue;
+    }
+    if (byId.has(task.id)) errors.push(`ID tugas duplikat: ${task.id}.`);
+    byId.set(task.id, task);
+    if (!task.isBuffer && hasWbsIds && !knownWbsIds.has(task.wbsId)) {
+      errors.push(`ID WBS tugas ${task.id} tidak ditemukan.`);
+    }
+    if (!Number.isFinite(task.durationWeeks) || task.durationWeeks < 0) {
+      errors.push(`Durasi tugas ${task.id} tidak valid.`);
+    }
+    if (!Number.isFinite(task.startWeek) || task.startWeek < 0 ||
+        !Number.isFinite(task.endWeek) || task.endWeek < task.startWeek ||
+        task.endWeek > projectEndWeek + 1e-8) {
+      errors.push(`Batas jadwal tugas ${task.id} tidak valid.`);
+    }
+    if (Number.isFinite(task.startWeek) && Number.isFinite(task.endWeek) &&
+        Number.isFinite(task.durationWeeks) &&
+        Math.abs(task.endWeek - task.startWeek - task.durationWeeks) > 1e-6) {
+      errors.push(`Durasi tugas ${task.id} tidak sesuai dengan batas jadwal.`);
+    }
+    if (task.dependencies !== undefined && !Array.isArray(task.dependencies)) {
+      errors.push(`Dependency tugas ${task.id} harus berupa array.`);
+    }
+  }
+
+  for (const task of tasks) {
+    if (!Array.isArray(task.dependencies)) continue;
+    for (const dependency of task.dependencies || []) {
+      if (!dependency || typeof dependency !== "object") {
+        errors.push(`Dependency tugas ${task.id} tidak valid.`);
+        continue;
+      }
+      if (!byId.has(dependency.predecessorId)) {
+        errors.push(`Predecessor ${dependency.predecessorId} pada tugas ${task.id} tidak ditemukan.`);
+        continue;
+      }
+      if (dependency.predecessorId === task.id) {
+        errors.push(`Tugas ${task.id} tidak dapat menjadi predecessor dirinya sendiri.`);
+      }
+      if (!["FS", "SS"].includes(dependency.type)) {
+        errors.push(`Tipe dependency ${dependency.type} pada tugas ${task.id} tidak didukung.`);
+      }
+      if (!Number.isFinite(dependency.lagWeeks)) {
+        errors.push(`Lag/lead pada tugas ${task.id} tidak valid.`);
+      }
+    }
+  }
+
+  if (errors.length) return { valid: false, errors };
+
+  const inDegree = new Map(tasks.map((task) => [task.id, 0]));
+  const successors = new Map(tasks.map((task) => [task.id, []]));
+  for (const task of tasks) {
+    for (const dependency of task.dependencies || []) {
+      inDegree.set(task.id, inDegree.get(task.id) + 1);
+      successors.get(dependency.predecessorId).push(task.id);
+    }
+  }
+
+  const ready = tasks.filter((task) => inDegree.get(task.id) === 0).map((task) => task.id);
+  let visited = 0;
+  while (ready.length) {
+    const id = ready.shift();
+    visited += 1;
+    for (const successorId of successors.get(id)) {
+      inDegree.set(successorId, inDegree.get(successorId) - 1);
+      if (inDegree.get(successorId) === 0) ready.push(successorId);
+    }
+  }
+  if (visited !== tasks.length) errors.push("Dependency mengandung siklus.");
+  return { valid: errors.length === 0, errors };
+}
+
+function scheduleGanttTasks(tasks, projectEndWeek, knownWbsIds) {
+  const validation = validateGanttDependencies(tasks, projectEndWeek, knownWbsIds);
+  if (!validation.valid) return { valid: false, errors: validation.errors, tasks: [] };
+
+  const byId = new Map(tasks.map((task) => [task.id, { ...task }]));
+  const scheduled = new Set();
+  const result = [];
+  while (scheduled.size < tasks.length) {
+    let progressed = false;
+    for (const source of tasks) {
+      if (scheduled.has(source.id)) continue;
+      const task = byId.get(source.id);
+      if ((task.dependencies || []).some((dependency) => !scheduled.has(dependency.predecessorId))) continue;
+
+      let startWeek = task.startWeek;
+      for (const dependency of task.dependencies || []) {
+        const predecessor = byId.get(dependency.predecessorId);
+        const constraint = dependency.type === "FS"
+          ? predecessor.endWeek + dependency.lagWeeks
+          : predecessor.startWeek + dependency.lagWeeks;
+        startWeek = Math.max(startWeek, constraint);
+      }
+      task.startWeek = Math.round(startWeek * 10000) / 10000;
+      task.endWeek = Math.round((task.startWeek + task.durationWeeks) * 10000) / 10000;
+      if (task.startWeek < -1e-8 || task.endWeek > projectEndWeek + 1e-8) {
+        return {
+          valid: false,
+          errors: [`Dependency mendorong tugas ${task.id} keluar dari horizon proyek.`],
+          tasks: [],
+        };
+      }
+      scheduled.add(task.id);
+      result.push(task);
+      progressed = true;
+    }
+    if (!progressed) return { valid: false, errors: ["Dependency mengandung siklus."], tasks: [] };
+  }
+
+  for (const task of result) {
+    for (const dependency of task.dependencies || []) {
+      const predecessor = byId.get(dependency.predecessorId);
+      const requiredWeek = dependency.type === "FS"
+        ? predecessor.endWeek + dependency.lagWeeks
+        : predecessor.startWeek + dependency.lagWeeks;
+      if (task.startWeek + 1e-8 < requiredWeek) {
+        return { valid: false, errors: [`Dependency ${dependency.type} tidak terpenuhi pada tugas ${task.id}.`], tasks: [] };
+      }
+    }
+  }
+  return { valid: true, errors: [], tasks: result };
+}
+
+function buildGanttSchedule(wbs, input) {
+  const rows = Array.isArray(wbs) ? wbs : [];
+  const validRows = [];
+  const knownWbsIds = new Set();
+  const issues = [];
+  for (const row of rows) {
+    if (!row || ![1, 2, 3].includes(Number(row.level)) ||
+        typeof row.id !== "string" || !row.id.trim() ||
+        typeof row.name !== "string" || !row.name.trim()) {
+      const rowId = row && typeof row.id === "string" ? row.id.trim() : "";
+      issues.push(`Baris WBS${rowId ? ` ${rowId}` : ""} tidak valid dan tidak dijadwalkan.`);
+      continue;
+    }
+    const id = row.id.trim();
+    if (knownWbsIds.has(id)) {
+      issues.push(`ID WBS duplikat diabaikan: ${id}.`);
+      continue;
+    }
+    knownWbsIds.add(id);
+    validRows.push({ ...row, id, level: Number(row.level), name: row.name.trim(), children: [] });
+  }
+
+  const roots = [];
+  const stack = [];
+  for (const row of validRows) {
+    if (row.level === 1) {
+      roots.push(row);
+      stack[0] = row;
+      stack.length = 1;
+      continue;
+    }
+    const parent = stack[row.level - 2];
+    if (!parent || parent.level !== row.level - 1) {
+      issues.push(`Hierarki WBS tidak valid; item ${row.id} tidak dijadwalkan.`);
+      stack.length = row.level - 1;
+      continue;
+    }
+    row.parentWbsId = parent.id;
+    parent.children.push(row);
+    stack[row.level - 1] = row;
+    stack.length = row.level;
+  }
+
+  const phaseSchedule = buildPhaseSchedule(validRows, input);
+  if (!phaseSchedule.tasks.length) {
+    return {
+      ...phaseSchedule,
+      valid: false,
+      errors: [...issues, "Tidak ada fase WBS yang dapat dijadwalkan."],
+    };
+  }
+
+  const phaseRows = roots.slice(0, phaseSchedule.tasks.filter((task) => !task.isBuffer).length);
+  const phaseTasks = phaseSchedule.tasks.filter((task) => !task.isBuffer);
+  const phaseTaskByWbsId = new Map();
+  const tasks = [];
+  phaseRows.forEach((row, index) => {
+    const phase = phaseTasks[index];
+    if (!phase) return;
+    const task = {
+      ...phase,
+      id: row.id,
+      wbsId: row.id,
+      level: 1,
+      parentId: null,
+      type: phase.isMilestone ? "Milestone" : "Phase",
+      dependencies: [],
+      scheduleBasis: "Estimasi sistem; durasi fase dan overlap diturunkan dari total durasi proyek.",
+    };
+    phaseTaskByWbsId.set(row.id, task);
+    tasks.push(task);
+  });
+
+  const bufferSource = phaseSchedule.tasks.find((task) => task.isBuffer);
+  let bufferTask = null;
+  if (bufferSource) {
+    bufferTask = {
+      ...bufferSource,
+      id: "schedule-buffer",
+      wbsId: null,
+      parentId: null,
+      level: 0,
+      dependencies: [],
+      scheduleBasis: "Cadangan waktu sistem; interval non-kerja, bukan item WBS.",
+    };
+  }
+
+  const devIndices = [];
+  for (let index = 1; index < phaseTasks.length - 2; index += 1) devIndices.push(index);
+  const hasTestingPhase = phaseTasks.length >= 3;
+  const hasClosingPhase = phaseTasks.length >= 2;
+  const phaseDependency = new Map();
+  if (devIndices.length > 0) {
+    const initiation = phaseRows[0]?.id;
+    phaseDependency.set(phaseRows[devIndices[0]]?.id, { predecessorId: initiation, type: "FS", lagWeeks: 0 });
+    for (let index = 1; index < devIndices.length; index += 1) {
+      const previousIdx = devIndices[index - 1];
+      const currentIdx = devIndices[index];
+      const lagWeeks = Math.round((phaseTasks[currentIdx].startWeek - phaseTasks[previousIdx].startWeek) * 10000) / 10000;
+      phaseDependency.set(phaseRows[currentIdx]?.id, {
+        predecessorId: phaseRows[previousIdx]?.id,
+        type: "SS",
+        lagWeeks,
+      });
+    }
+    if (hasTestingPhase) {
+      const lastDevIdx = devIndices[devIndices.length - 1];
+      phaseDependency.set(phaseRows[phaseTasks.length - 2]?.id, {
+        predecessorId: phaseRows[lastDevIdx]?.id,
+        type: "FS",
+        lagWeeks: 0,
+      });
+    }
+  } else {
+    for (let index = 1; index < phaseRows.length; index += 1) {
+      phaseDependency.set(phaseRows[index].id, {
+        predecessorId: phaseRows[index - 1].id,
+        type: "FS",
+        lagWeeks: 0,
+      });
+    }
+  }
+
+  const closingRow = hasClosingPhase ? phaseRows[phaseRows.length - 1] : null;
+  const testingRow = hasTestingPhase ? phaseRows[phaseRows.length - 2] : null;
+  if (closingRow) {
+    phaseDependency.set(closingRow.id, {
+      predecessorId: bufferTask?.id || testingRow?.id || phaseRows[phaseRows.length - 2]?.id,
+      type: "FS",
+      lagWeeks: 0,
+    });
+  }
+  for (const [phaseId, dependency] of phaseDependency) {
+    const phase = phaseTaskByWbsId.get(phaseId);
+    if (phase && dependency.predecessorId) phase.dependencies = [dependency];
+  }
+  if (bufferTask) {
+    bufferTask.dependencies = testingRow
+      ? [{ predecessorId: testingRow.id, type: "FS", lagWeeks: 0 }]
+      : [];
+  }
+
+  const flattened = [];
+  const addChildren = (parentRow, parentTask) => {
+    if (!parentRow.children.length) return;
+    const leafRows = [];
+    const allRows = [];
+    const collectLeaves = (node) => {
+      allRows.push(node);
+      if (!node.children.length) leafRows.push(node);
+      else node.children.forEach(collectLeaves);
+    };
+    parentRow.children.forEach(collectLeaves);
+    let cursor = parentTask.startWeek;
+    const leafTimes = new Map();
+    let previousLeaf = null;
+    leafRows.forEach((row, index) => {
+      const end = index === leafRows.length - 1
+        ? parentTask.endWeek
+        : parentTask.startWeek + parentTask.durationWeeks * (index + 1) / leafRows.length;
+      const task = {
+        id: row.id,
+        wbsId: row.id,
+        name: row.name,
+        level: row.level,
+        parentId: row.parentWbsId,
+        type: row.level === 2 ? "Activity" : "Work Package",
+        isMilestone: false,
+        isBuffer: false,
+        startWeek: cursor,
+        endWeek: end,
+        durationWeeks: Math.max(0, end - cursor),
+        dependencies: previousLeaf
+          ? [{ predecessorId: previousLeaf.id, type: "FS", lagWeeks: 0 }]
+          : parentTask.dependencies.map((dependency) => ({ ...dependency })),
+        assumption: "Durasi dan urutan merupakan estimasi sistem; belum disetujui sebagai baseline proyek.",
+        scheduleBasis: "Estimasi sistem; pembagian merata dalam fase dan hubungan Finish-to-Start.",
+      };
+      leafTimes.set(row.id, task);
+      previousLeaf = task;
+      cursor = end;
+    });
+
+    const byRowId = new Map(leafTimes);
+    for (const row of allRows.slice().reverse()) {
+      if (leafTimes.has(row.id)) continue;
+      const children = row.children.map((child) => byRowId.get(child.id)).filter(Boolean);
+      if (!children.length) continue;
+      byRowId.set(row.id, {
+        id: row.id,
+        wbsId: row.id,
+        name: row.name,
+        level: row.level,
+        parentId: row.parentWbsId,
+        type: "Activity",
+        isMilestone: false,
+        isBuffer: false,
+        startWeek: Math.min(...children.map((child) => child.startWeek)),
+        endWeek: Math.max(...children.map((child) => child.endWeek)),
+        durationWeeks: Math.max(...children.map((child) => child.endWeek)) - Math.min(...children.map((child) => child.startWeek)),
+        dependencies: [],
+        assumption: "Tanggal dan durasi diturunkan dari batas WBS anak.",
+        scheduleBasis: "Roll-up dari item anak; estimasi sistem, belum disetujui.",
+      });
+    }
+    const appendTree = (row) => {
+      const task = byRowId.get(row.id);
+      if (task) flattened.push(task);
+      row.children.forEach(appendTree);
+    };
+    parentRow.children.forEach(appendTree);
+    parentTask.scheduleBasis = "Roll-up WBS dengan asumsi estimasi sistem; belum disetujui.";
+  };
+  for (const row of phaseRows) {
+    const phase = phaseTaskByWbsId.get(row.id);
+    if (!phase) continue;
+    flattened.push(phase);
+    addChildren(row, phase);
+  }
+  if (bufferTask) {
+    const closingIndex = flattened.findIndex((task) => task.wbsId === closingRow?.id);
+    flattened.splice(closingIndex < 0 ? flattened.length : closingIndex, 0, bufferTask);
+  }
+
+  const scheduled = scheduleGanttTasks(flattened, phaseSchedule.projectEndWeek, knownWbsIds);
+  if (!scheduled.valid) {
+    return {
+      ...phaseSchedule,
+      tasks: [],
+      valid: false,
+      errors: scheduled.errors,
+      assumptions: ["Jadwal tidak dapat dibuat karena dependency tidak valid."],
+    };
+  }
+
+  const byId = new Map(scheduled.tasks.map((task) => [task.id, task]));
+  for (const row of validRows.slice().reverse()) {
+    const task = byId.get(row.id);
+    if (!task || !row.children.length) continue;
+    const children = row.children.map((child) => byId.get(child.id)).filter(Boolean);
+    if (!children.length) continue;
+    task.startWeek = Math.min(...children.map((child) => child.startWeek));
+    task.endWeek = Math.max(...children.map((child) => child.endWeek));
+    task.durationWeeks = task.endWeek - task.startWeek;
+  }
+
+  const dateAtWeek = (week) => phaseSchedule.originDate
+    ? projectDateAtWeek(input.startDate, week)
+    : null;
+  const fmtDate = (date) => date ? formatProjectDate(date, "short") : null;
+  for (const task of scheduled.tasks) {
+    task.startWeek = Math.round(task.startWeek * 10000) / 10000;
+    task.endWeek = Math.round(task.endWeek * 10000) / 10000;
+    task.durationWeeks = Math.round((task.endWeek - task.startWeek) * 10000) / 10000;
+    task.startDate = dateAtWeek(task.startWeek);
+    task.endDate = dateAtWeek(task.endWeek);
+    task.startDateStr = fmtDate(task.startDate);
+    task.endDateStr = fmtDate(task.endDate);
+    task.predecessorIds = (task.dependencies || []).map((dependency) => dependency.predecessorId);
+    task.dependencyType = task.dependencies?.[0]?.type || "";
+    task.lagWeeks = task.dependencies?.[0]?.lagWeeks ?? 0;
+  }
+
+  const finalValidation = validateGanttDependencies(scheduled.tasks, phaseSchedule.projectEndWeek, knownWbsIds);
+  return {
+    ...phaseSchedule,
+    tasks: scheduled.tasks,
+    valid: finalValidation.valid && issues.length === 0,
+    errors: [...issues, ...finalValidation.errors],
+    dateConvention: "Start Date is inclusive; Finish Date is exclusive (start + duration).",
+    assumptions: [
+      "Phase durations and 15% development overlap follow the existing deterministic system estimate.",
+      "Activities/work packages are evenly divided within their parent phase and sequenced Finish-to-Start.",
+      "The completion boundary equals the requested project duration; finish dates are exclusive.",
+    ],
+  };
+}
+
 /**
  * renderGantt(ganttData)
  *
@@ -1716,17 +2127,18 @@ function renderGantt(ganttData, input) {
   const { tasks, projectEndWeek, hasCalendarDates, originDate } = ganttData;
 
   if (!tasks || tasks.length === 0) {
-    container.innerHTML = `<p class="text-slate-400 italic text-sm py-4">Gantt tidak tersedia untuk dokumen ini.</p>`;
+    const reason = (ganttData.errors || []).join(" ");
+    container.innerHTML = `<p class="text-slate-400 italic text-sm py-4">${escHtml(reason || "Gantt tidak tersedia untuk dokumen ini.")}</p>`;
     return;
   }
 
   // ── Layout constants ─────────────────────────────────────────────────────
-  const LABEL_W    = 220;   // px — left label column
+  const LABEL_W    = 280;   // px — WBS ID and task label column
   const ROW_H      = 34;    // px — row height
   const BAR_H      = 20;    // px — bar height within row
   const BAR_PAD_V  = (ROW_H - BAR_H) / 2;
   const HEADER_H   = 38;    // px — time axis header height
-  const TICK_COUNT = Math.min(projectEndWeek, 20); // max 20 ticks
+  const useMonthTicks = projectEndWeek > 12;
   const CHART_W    = 700;   // px — timeline draw area (scrollable)
   const SVG_W      = LABEL_W + CHART_W;
   const SVG_H      = HEADER_H + tasks.length * ROW_H + 20; // +20 bottom pad
@@ -1749,22 +2161,36 @@ function renderGantt(ganttData, input) {
     return devColors[idx % devColors.length];
   };
 
-  // ── Tick intervals ───────────────────────────────────────────────────────
-  // Choose a nice tick interval so we get ≤20 ticks
-  const rawInterval = totalW / TICK_COUNT;
-  const tickInterval = rawInterval <= 1 ? 1 : rawInterval <= 2 ? 2 : rawInterval <= 4 ? 4 : 5;
+  // Projects over 12 weeks use calendar-month ticks; shorter projects use weeks.
   const ticks = [];
-  for (let w = 0; w <= totalW; w += tickInterval) ticks.push(w);
-  if (ticks[ticks.length - 1] < totalW) ticks.push(totalW);
+  if (useMonthTicks && hasCalendarDates && originDate) {
+    ticks.push(0);
+    const monthCursor = new Date(Date.UTC(originDate.getUTCFullYear(), originDate.getUTCMonth() + 1, 1));
+    while ((monthCursor - originDate) / (7 * 24 * 60 * 60 * 1000) < totalW) {
+      ticks.push((monthCursor - originDate) / (7 * 24 * 60 * 60 * 1000));
+      monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
+    }
+    if (ticks.length > 1 && totalW - ticks[ticks.length - 1] < 0.75) ticks.pop();
+    ticks.push(totalW);
+  } else {
+    const tickInterval = useMonthTicks ? 4 : 1;
+    for (let week = 0; week <= totalW; week += tickInterval) ticks.push(week);
+    if (ticks[ticks.length - 1] < totalW) ticks.push(totalW);
+  }
 
   // ── Generate tick labels ──────────────────────────────────────────────────
   const tickLabel = (w) => {
+    if (useMonthTicks && hasCalendarDates && originDate) {
+      const d = new Date(originDate);
+      d.setUTCDate(d.getUTCDate() + Math.round(w * 7));
+      return d.toLocaleDateString("id-ID", { month: "short", year: "numeric", timeZone: "UTC" });
+    }
     if (hasCalendarDates && originDate) {
       const d = new Date(originDate);
-      d.setDate(d.getDate() + Math.round(w * 7));
-      return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+      d.setUTCDate(d.getUTCDate() + Math.round(w * 7));
+      return d.toLocaleDateString("id-ID", { day: "numeric", month: "short", timeZone: "UTC" });
     }
-    return `W${w}`;
+    return useMonthTicks ? `Bulan ${Math.floor(w / 4) + 1}` : `Minggu ${w}`;
   };
 
   // ── Build SVG rows ────────────────────────────────────────────────────────
@@ -1781,9 +2207,13 @@ function renderGantt(ganttData, input) {
       : `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="#ffffff"/>`;
 
     // Label (truncated at LABEL_W - 12 px)
-    const label = `<text x="${LABEL_W - 10}" y="${midY + 4.5}" text-anchor="end"
-        font-family="Inter,system-ui,sans-serif" font-size="11" fill="#334155"
-        class="gantt-label">${escHtml(t.name.length > 28 ? t.name.slice(0, 26) + "…" : t.name)}</text>`;
+    const indent = Math.max(0, Number(t.level) - 1) * 12;
+    const labelId = `<text x="8" y="${midY + 4.5}" font-family="ui-monospace,monospace"
+        font-size="10" fill="#64748b">${escHtml(t.isBuffer ? "—" : t.wbsId || t.id)}</text>`;
+    const label = `<text x="${58 + indent}" y="${midY + 4.5}" font-family="Inter,system-ui,sans-serif"
+        font-size="11" fill="#334155" class="gantt-label">${escHtml(t.name.length > 27 ? t.name.slice(0, 25) + "…" : t.name)}</text>`;
+    const parentAttr = t.parentId ? escHtml(t.parentId) : "";
+    const hidden = Number(t.level) > 1 ? ' style="display:none"' : "";
 
     let barEl;
     if (t.isBuffer) {
@@ -1816,8 +2246,30 @@ function renderGantt(ganttData, input) {
     // Vertical separator after label column
     const sep = `<line x1="${LABEL_W}" y1="${y}" x2="${LABEL_W}" y2="${y + ROW_H}" stroke="#e2e8f0" stroke-width="1"/>`;
 
-    return stripe + label + sep + barEl;
+    return `<g data-gantt-task-id="${escHtml(t.id)}" data-gantt-parent-id="${parentAttr}"${hidden}>${stripe}${labelId}${label}${sep}${barEl}</g>`;
   }).join("\n");
+
+  const rowIndex = new Map(tasks.map((task, index) => [task.id, index]));
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const dependenciesSVG = tasks.flatMap((task) =>
+    (task.dependencies || []).map((dependency) => {
+      const predecessorIndex = rowIndex.get(dependency.predecessorId);
+      const taskIndex = rowIndex.get(task.id);
+      const predecessor = taskById.get(dependency.predecessorId);
+      if (predecessorIndex === undefined || taskIndex === undefined || !predecessor) return "";
+      const sourceWeek = dependency.type === "FS" ? predecessor.endWeek : predecessor.startWeek;
+      const x1 = xOf(sourceWeek + dependency.lagWeeks);
+      const y1 = HEADER_H + predecessorIndex * ROW_H + ROW_H / 2;
+      const x2 = xOf(task.startWeek);
+      const y2 = HEADER_H + taskIndex * ROW_H + ROW_H / 2;
+      const hidden = Number(task.level) > 1 ? ' style="display:none"' : "";
+      return `<g data-gantt-dependency-task-id="${escHtml(task.id)}"${hidden}>
+        <path d="M ${x1} ${y1} H ${Math.max(x1 + 4, x2 - 5)} V ${y2} H ${x2 - 2}"
+          fill="none" stroke="#64748b" stroke-width="1.2" stroke-dasharray="${dependency.type === "SS" ? "3 2" : "none"}"
+          marker-end="url(#gantt-arrow)"><title>${escHtml(dependency.type)} ${escHtml(dependency.predecessorId)} → ${escHtml(task.id)}; lag/lead ${dependency.lagWeeks} minggu</title></path>
+      </g>`;
+    })
+  ).join("\n");
 
   // ── Time axis ─────────────────────────────────────────────────────────────
   const ticksSVG = ticks.map((w) => {
@@ -1840,42 +2292,71 @@ function renderGantt(ganttData, input) {
       fill="#7c3aed" opacity="0.9"/>
     <text x="${LABEL_W + 134}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">Milestone</text>
     <rect x="${LABEL_W + 215}" y="6" width="14" height="10" rx="2" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 2"/>
-    <text x="${LABEL_W + 234}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#94a3b8" font-style="italic">Buffer</text>`;
+    <text x="${LABEL_W + 234}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#94a3b8" font-style="italic">Buffer</text>
+    <line x1="${LABEL_W + 320}" y1="11" x2="${LABEL_W + 344}" y2="11" stroke="#64748b" stroke-width="1.2"/>
+    <text x="${LABEL_W + 349}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">FS</text>
+    <line x1="${LABEL_W + 379}" y1="11" x2="${LABEL_W + 403}" y2="11" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 2"/>
+    <text x="${LABEL_W + 408}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">SS</text>`;
 
   // ── Compose SVG ───────────────────────────────────────────────────────────
   const svgContent = `
+    <defs>
+      <marker id="gantt-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0 L7,3.5 L0,7 z" fill="#64748b"/>
+      </marker>
+    </defs>
     ${legendSVG}
     ${ticksSVG}
     ${axisLine}
     ${rowsSVG}
+    ${dependenciesSVG}
     <line x1="${LABEL_W}" y1="0" x2="${LABEL_W}" y2="${SVG_H}" stroke="#e2e8f0" stroke-width="1"/>`;
 
   const disclaimer = hasCalendarDates
-    ? `Jadwal di atas adalah <strong>estimasi sistem</strong> — bukan komitmen aktual. Tanggal dihitung dari tanggal mulai dan durasi yang diinput.`
-    : `Tanggal mulai proyek belum ditentukan. Timeline ditampilkan dalam <strong>minggu relatif</strong> (W0 = awal proyek). Jadwal di atas adalah estimasi perencanaan.`;
+    ? `Jadwal di atas adalah <strong>estimasi sistem, belum disetujui</strong>. Start Date inklusif; Finish Date eksklusif (tanggal mulai + durasi).`
+    : `Tanggal mulai proyek belum ditentukan. Jadwal menggunakan <strong>minggu relatif</strong> tanpa membuat tanggal kalender. Estimasi sistem belum disetujui.`;
+  const scheduleWarnings = (ganttData.errors || []).length
+    ? `<div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900" role="status">
+        <strong>Jadwal parsial:</strong> ${ganttData.errors.map(escHtml).join(" ")}
+      </div>`
+    : "";
 
   // ── Detail table HTML ──────────────────────────────────────────────────────
   const detailRows = tasks.map((t) => {
     const startLabel = t.startDateStr || `Minggu ${t.startWeek}`;
     const endLabel   = t.endDateStr   || `Minggu ${t.endWeek}`;
-    const typeLabel  = t.isBuffer
-      ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-300 italic">⋯ Buffer</span>`
-      : t.isMilestone
-      ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200">◆ Milestone</span>`
-      : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">— Aktivitas</span>`;
+    const children = tasks.filter((child) => child.parentId === t.id);
+    const toggle = children.length
+      ? `<button type="button" data-gantt-toggle="${escHtml(t.id)}" aria-expanded="false"
+          aria-label="Tampilkan turunan WBS ${escHtml(t.id)}" class="mr-1 text-indigo-600 hover:text-indigo-900 font-bold">+</button>`
+      : "";
+    const predecessorLabel = (t.dependencies || []).map((dependency) => {
+      const predecessor = taskById.get(dependency.predecessorId);
+      return predecessor ? `${dependency.predecessorId} ${predecessor.name}` : dependency.predecessorId;
+    }).join("; ");
+    const dependencyLabel = (t.dependencies || []).map((dependency) => dependency.type).join("; ");
+    const lagLabel = (t.dependencies || []).map((dependency) =>
+      `${dependency.lagWeeks > 0 ? "+" : ""}${dependency.lagWeeks}`
+    ).join("; ");
+    const rowType = t.isBuffer ? "Buffer (non-kerja)" : t.type || "WBS";
     const rowClass = t.isBuffer ? "border-b border-slate-100 bg-slate-50 opacity-70" : "border-b border-slate-100";
-    return `<tr class="${rowClass}">
-      <td class="px-3 py-2 font-mono text-xs text-slate-400">${escHtml(t.id)}</td>
-      <td class="px-3 py-2 text-sm ${t.isBuffer ? 'text-slate-400 italic' : 'text-slate-700 font-medium'}">${escHtml(t.name)}</td>
-      <td class="px-3 py-2 text-center">${typeLabel}</td>
+    const hidden = Number(t.level) > 1 ? ' style="display:none"' : "";
+    return `<tr class="${rowClass}" data-gantt-row-id="${escHtml(t.id)}" data-gantt-parent-id="${escHtml(t.parentId || "")}"${hidden}>
+      <td class="px-3 py-2 font-mono text-xs text-slate-500">${escHtml(t.isBuffer ? "—" : t.wbsId || t.id)}</td>
+      <td class="px-3 py-2 text-sm ${t.isBuffer ? "text-slate-400 italic" : "text-slate-700 font-medium"}" style="padding-left:${12 + Math.max(0, Number(t.level) - 1) * 16}px">${toggle}${escHtml(t.name)}</td>
+      <td class="px-3 py-2 text-xs text-slate-600">${escHtml(rowType)}</td>
       <td class="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">${escHtml(startLabel)}</td>
       <td class="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">${escHtml(endLabel)}</td>
-      <td class="px-3 py-2 text-xs text-slate-500 text-center">${t.durationWeeks}w</td>
-      <td class="px-3 py-2 text-xs text-slate-400 italic">${escHtml(t.assumption)}</td>
+      <td class="px-3 py-2 text-xs text-slate-500 text-center">${t.durationWeeks} minggu</td>
+      <td class="px-3 py-2 text-xs text-slate-600">${escHtml(predecessorLabel || "—")}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 text-center">${escHtml(dependencyLabel || "—")}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 text-center">${escHtml(lagLabel || "0")}</td>
+      <td class="px-3 py-2 text-xs text-slate-400 italic">${escHtml(t.scheduleBasis || t.assumption || "Estimasi sistem.")}</td>
     </tr>`;
   }).join("");
 
   container.innerHTML = `
+    ${scheduleWarnings}
     <!-- Disclaimer -->
     <div class="flex items-start gap-2 p-3 mb-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
       <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -1899,24 +2380,89 @@ function renderGantt(ganttData, input) {
 
     <!-- Detail table -->
     <div class="mt-5">
-      <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Rincian Jadwal</p>
+      <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Rincian Jadwal WBS</p>
       <div class="table-wrap rounded-xl border border-slate-200 overflow-hidden">
-        <table class="data-table w-full text-sm border-collapse" role="grid">
+        <table class="data-table w-full text-sm border-collapse">
           <thead>
             <tr class="bg-indigo-600 text-white text-left text-xs font-semibold uppercase tracking-wide">
-              <th class="px-3 py-2.5 w-10">ID</th>
-              <th class="px-3 py-2.5">Fase / Aktivitas</th>
-              <th class="px-3 py-2.5 text-center w-24">Tipe</th>
-              <th class="px-3 py-2.5 whitespace-nowrap">Mulai (Est.)</th>
-              <th class="px-3 py-2.5 whitespace-nowrap">Selesai (Est.)</th>
-              <th class="px-3 py-2.5 text-center w-16">Durasi</th>
-              <th class="px-3 py-2.5">Asumsi Penjadwalan</th>
+              <th class="px-3 py-2.5">WBS ID</th>
+              <th class="px-3 py-2.5">Task</th>
+              <th class="px-3 py-2.5">Type</th>
+              <th class="px-3 py-2.5 whitespace-nowrap">Start Date (inclusive)</th>
+              <th class="px-3 py-2.5 whitespace-nowrap">Finish Date (exclusive)</th>
+              <th class="px-3 py-2.5 text-center">Duration</th>
+              <th class="px-3 py-2.5">Predecessor</th>
+              <th class="px-3 py-2.5">Dependency Type</th>
+              <th class="px-3 py-2.5">Lag/Lead (weeks)</th>
+              <th class="px-3 py-2.5">Schedule Basis</th>
             </tr>
           </thead>
           <tbody>${detailRows}</tbody>
         </table>
       </div>
     </div>`;
+
+  const descendantsByParent = new Map();
+  for (const task of tasks) {
+    if (!task.parentId) continue;
+    if (!descendantsByParent.has(task.parentId)) descendantsByParent.set(task.parentId, []);
+    descendantsByParent.get(task.parentId).push(task);
+  }
+  container.querySelectorAll("[data-gantt-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const taskId = button.dataset.ganttToggle;
+      const expanded = button.getAttribute("aria-expanded") === "true";
+      const directChildren = descendantsByParent.get(taskId) || [];
+      const updateDescendants = (parentId, visible) => {
+        for (const child of descendantsByParent.get(parentId) || []) {
+          const chartRow = [...container.querySelectorAll("[data-gantt-task-id]")]
+            .find((element) => element.dataset.ganttTaskId === child.id);
+          const tableRow = [...container.querySelectorAll("[data-gantt-row-id]")]
+            .find((element) => element.dataset.ganttRowId === child.id);
+          const dependencyLines = [...container.querySelectorAll("[data-gantt-dependency-task-id]")]
+            .filter((element) => element.dataset.ganttDependencyTaskId === child.id);
+          if (chartRow) chartRow.style.display = visible ? "" : "none";
+          if (tableRow) tableRow.style.display = visible ? "table-row" : "none";
+          dependencyLines.forEach((element) => {
+            element.style.display = visible ? "" : "none";
+          });
+          if (!visible) {
+            const childToggle = [...container.querySelectorAll("[data-gantt-toggle]")]
+              .find((element) => element.dataset.ganttToggle === child.id);
+            if (childToggle) {
+              childToggle.setAttribute("aria-expanded", "false");
+              childToggle.textContent = "+";
+            }
+            updateDescendants(child.id, false);
+          }
+        }
+      };
+      for (const child of directChildren) {
+        const chartRow = [...container.querySelectorAll("[data-gantt-task-id]")]
+          .find((element) => element.dataset.ganttTaskId === child.id);
+        const tableRow = [...container.querySelectorAll("[data-gantt-row-id]")]
+          .find((element) => element.dataset.ganttRowId === child.id);
+        const dependencyLines = [...container.querySelectorAll("[data-gantt-dependency-task-id]")]
+          .filter((element) => element.dataset.ganttDependencyTaskId === child.id);
+        if (chartRow) chartRow.style.display = expanded ? "none" : "";
+        if (tableRow) tableRow.style.display = expanded ? "none" : "table-row";
+        dependencyLines.forEach((element) => {
+          element.style.display = expanded ? "none" : "";
+        });
+        if (expanded) {
+          const childToggle = [...container.querySelectorAll("[data-gantt-toggle]")]
+            .find((element) => element.dataset.ganttToggle === child.id);
+          if (childToggle) {
+            childToggle.setAttribute("aria-expanded", "false");
+            childToggle.textContent = "+";
+          }
+          updateDescendants(child.id, false);
+        }
+      }
+      button.setAttribute("aria-expanded", String(!expanded));
+      button.textContent = expanded ? "+" : "−";
+    });
+  });
 }
 
 // ── Render dokumen ──────────────────────────────────────────────────────────
@@ -1940,7 +2486,7 @@ function syncCharterMilestonesToGantt(doc, ganttData) {
   if (!doc.charter) return;
 
   // Work tasks only — exclude the synthetic buffer row (isBuffer === true)
-  const workTasks = ganttData.tasks.filter((t) => !t.isBuffer);
+  const workTasks = ganttData.tasks.filter((t) => !t.isBuffer && Number(t.level) === 1);
 
   if (workTasks.length === 0) return;
 
@@ -2046,7 +2592,7 @@ function renderCharter(charter, input) {
       <div class="divide-y divide-slate-100">
         ${infoRow("Nama Proyek",     charter.project_title || input.projectName)}
         ${infoRow("Tanggal Mulai",   charter.start_date)}
-        ${infoRow("Proyeksi Selesai",charter.finish_date)}
+        ${infoRow("Proyeksi Selesai (eksklusif)",charter.finish_date)}
         ${infoRow("Anggaran",        charter.budget_info || input.budgetRange)}
         ${infoRow("Project Manager", charter.pm_name)}
         ${infoRow("Metodologi",      charter.methodology)}
@@ -2667,16 +3213,6 @@ function renderScore(criteria, total, maxTotal, percentage) {
   `;
 }
 
-// ── Security helper ─────────────────────────────────────────────────────────
-function escHtml(str) {
-  return String(str ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;");
-}
-
 // ── Main controller ─────────────────────────────────────────────────────────
 
 /**
@@ -2795,8 +3331,9 @@ async function onGenerateTemplate() {
   const input = getFormData();
   if (!input) return;
 
-  generationRequestId += 1;
+  projectStore.invalidatePendingGeneration();
   clearAIGenerationState();
+  projectStore.setGenerationStatus("generating");
   currentMode = "template";
   currentInput = input;
   renderBadge("template");
@@ -2807,6 +3344,7 @@ async function onGenerateTemplate() {
   // S1.A-4: Reset edit tracking after successful re-generation
   costEdited = false;
   renderDocument(doc, input);
+  projectStore.setGenerationStatus("ready");
 
   $("output-section")?.scrollIntoView({ behavior: "smooth" });
 }
@@ -2933,8 +3471,7 @@ async function onGenerateAI() {
   const input = getFormData();
   if (!input) return;
 
-  const requestId = ++generationRequestId;
-  currentInput = input;
+  const requestId = projectStore.beginAIGeneration(input);
 
   // S1.B-5: Mark existing output as stale while loading.
   // Dim old sections so they cannot be mistaken for the new result.
@@ -2977,7 +3514,7 @@ async function onGenerateAI() {
 
     const result = await resp.json();
 
-    if (requestId !== generationRequestId) return;
+    if (!projectStore.isCurrentRequest(requestId)) return;
 
     if (result.fallback) {
       // Server mengembalikan sinyal fallback
@@ -3034,6 +3571,7 @@ async function onGenerateAI() {
     // S1.B-6: Explicit badge — this is real Gemini output, not a fallback
     renderBadge("ai");
     renderDocument(aiData, input);
+    projectStore.setGenerationStatus("ready");
 
     // S1.B-7: Show explanation in Gantt area if WBS was unusable
     if (wbsUnusableReason) {
@@ -3041,7 +3579,7 @@ async function onGenerateAI() {
     }
 
   } catch (err) {
-    if (requestId !== generationRequestId) return;
+    if (!projectStore.isCurrentRequest(requestId)) return;
 
     // S1.B-5: Restore old sections on failure so user can still read previous doc
     ["section-charter","section-wbs","section-risk","section-cost","section-assumptions","section-gantt","section-governance"].forEach(id => {
@@ -3059,8 +3597,10 @@ async function onGenerateAI() {
     // S1.A-4: Reset edit tracking on fallback too (new doc generated)
     costEdited = false;
     renderDocument(doc, input);
+    projectStore.setGenerationStatus("ready");
+
   } finally {
-    if (requestId === generationRequestId) {
+    if (projectStore.isCurrentRequest(requestId)) {
       // S1.B-5: Always remove the loading banner and restore opacity
       if (loadingBanner) loadingBanner.remove();
       clearAIGenerationState();
@@ -3097,4 +3637,5 @@ document.addEventListener("DOMContentLoaded", () => {
   $("export-risk")?.addEventListener("click", () => exportCSV("risk"));
   $("export-cost")?.addEventListener("click", () => exportCSV("cost"));
   $("export-governance")?.addEventListener("click", () => exportCSV("governance"));
+  $("export-gantt")?.addEventListener("click", () => exportCSV("gantt"));
 });

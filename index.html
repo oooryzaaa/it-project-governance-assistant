@@ -84,6 +84,11 @@
       .gantt-scroll-wrap { overflow: visible !important; }
       .gantt-scroll-wrap svg { width: 100% !important; height: auto !important; }
       #section-gantt { page-break-before: always; }
+      #section-gantt [data-gantt-task-id] { display: inline !important; }
+      #section-gantt [data-gantt-row-id] { display: table-row !important; }
+      #section-gantt [data-gantt-dependency-task-id] { display: inline !important; }
+      #section-gantt .gantt-scroll-wrap { break-inside: avoid; }
+      #section-gantt .table-wrap { overflow: visible !important; }
     }
 
     /* ── Responsive sidebar layout ─────────────────────────────────────── */
@@ -758,14 +763,17 @@
       <section id="section-gantt"
         class="hidden section-reveal card-accent accent-navy bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="gantt-heading">
-        <div class="px-6 pt-6 pb-4 border-b border-slate-100">
+        <div class="flex items-center justify-between gap-3 px-6 pt-6 pb-4 border-b border-slate-100">
           <h2 id="gantt-heading" class="flex items-center gap-2.5 text-base font-bold text-slate-800">
             <span class="flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-bold shrink-0">6</span>
             Gantt Chart
             <span class="text-sm font-normal text-slate-400">(Jadwal Proyek Estimasi)</span>
           </h2>
-          <p class="text-xs text-slate-500 mt-1">Jadwal diturunkan dari fase WBS. Seluruh tanggal adalah estimasi sistem — bukan komitmen aktual.</p>
+          <button id="export-gantt"
+            class="no-print inline-flex items-center gap-1.5 text-xs font-medium text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg px-3 py-1.5 transition focus:ring-2 focus:ring-indigo-400 focus:outline-none"
+            aria-label="Ekspor jadwal Gantt ke CSV">Ekspor CSV</button>
         </div>
+        <p class="px-6 pt-3 text-xs text-slate-500">Jadwal berbasis WBS; seluruh durasi dan dependency yang tidak disediakan sebagai baseline diberi label estimasi sistem, belum disetujui.</p>
         <div id="gantt-content" class="px-6 py-5"></div>
       </section>
 
@@ -860,7 +868,10 @@
   </main>
 </div><!-- /.app-layout -->
 
-<!-- Scripts: cobit-data.js must load before app.js -->
+<!-- Classic scripts preserve both HTTP and file:// Template Mode compatibility. -->
+<script src="js/core/utils.js"></script>
+<script src="js/core/project-store.js"></script>
+<!-- cobit-data.js must load before app.js -->
 <script src="cobit-data.js"></script>
 <script src="app.js"></script>
 
