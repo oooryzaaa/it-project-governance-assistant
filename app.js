@@ -24,6 +24,14 @@ let currentDoc = null;
 /** Input form terakhir */
 let currentInput = null;
 
+/**
+ * S1.A-4: Cost-edit tracking state.
+ * Set to true when the user has made any edits to the cost table (hours,
+ * rate, non-labor, or contingency %) since the last generation.  Reset to
+ * false after a confirmed re-generation or after a fresh render.
+ */
+let costEdited = false;
+
 // ── DOM helpers ─────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -75,12 +83,12 @@ function generateTemplate(input) {
       ],
       wbsPhases: ["Inisiasi & Perencanaan", "Analisis Kebutuhan", "Desain UI/UX", "Pengembangan Frontend", "Pengembangan Backend", "Pengujian", "Deployment & Penutupan"],
       risks: [
-        { desc: "Perubahan kebutuhan pengguna di tengah proyek", prob: "high", imp: "high", mit: "Lakukan review kebutuhan setiap sprint; gunakan manajemen perubahan formal" },
-        { desc: "Celah keamanan pada aplikasi web (XSS, SQL Injection)", prob: "medium", imp: "high", mit: "Terapkan OWASP Top 10; lakukan code review dan pengujian penetrasi" },
-        { desc: "Keterlambatan integrasi dengan sistem pihak ketiga", prob: "medium", imp: "medium", mit: "Identifikasi dependensi eksternal lebih awal; buat stub/mock API" },
+        { desc: "Perubahan kebutuhan pengguna di tengah proyek", prob: "high", imp: "high", mit: "Lakukan review kebutuhan setiap sprint; gunakan manajemen perubahan formal", family: "scope-change" },
+        { desc: "Celah keamanan pada aplikasi web (XSS, SQL Injection)", prob: "medium", imp: "high", mit: "Terapkan OWASP Top 10; lakukan code review dan pengujian penetrasi", family: "web-security" },
+        { desc: "Keterlambatan integrasi dengan sistem pihak ketiga", prob: "medium", imp: "medium", mit: "Identifikasi dependensi eksternal lebih awal; buat stub/mock API", family: "third-party-integration" },
         { desc: "Kinerja aplikasi tidak memenuhi target (response time)", prob: "low", imp: "high", mit: "Lakukan load testing; optimalkan query dan caching" },
-        { desc: "Anggota tim mengundurkan diri atau tidak tersedia", prob: "low", imp: "high", mit: "Dokumentasikan pengetahuan teknis; siapkan rencana penggantian SDM" },
-        { desc: "Ketidakpatuhan terhadap regulasi perlindungan data (UU PDP)", prob: "medium", imp: "high", mit: "Review compliance dengan UU PDP; implementasi enkripsi data sensitif" },
+        { desc: "Anggota tim mengundurkan diri atau tidak tersedia", prob: "low", imp: "high", mit: "Dokumentasikan pengetahuan teknis; siapkan rencana penggantian SDM", family: "team-availability" },
+        { desc: "Ketidakpatuhan terhadap regulasi perlindungan data (UU PDP)", prob: "medium", imp: "high", mit: "Review compliance dengan UU PDP; implementasi enkripsi data sensitif", family: "data-compliance" },
       ],
       costCategories: ["Analisis & Desain", "Pengembangan Frontend", "Pengembangan Backend", "Pengujian & QA", "Deployment & DevOps", "Manajemen Proyek"],
     },
@@ -107,12 +115,12 @@ function generateTemplate(input) {
       ],
       wbsPhases: ["Inisiasi & Perencanaan", "Riset Pengguna & Analisis", "Desain UX/UI Mobile", "Pengembangan Aplikasi", "Integrasi Backend", "Pengujian & QA", "Rilis & Penutupan"],
       risks: [
-        { desc: "Fragmentasi perangkat dan versi OS menyebabkan bug", prob: "high", imp: "medium", mit: "Buat matriks perangkat target; gunakan emulator dan perangkat fisik representatif" },
-        { desc: "Penolakan aplikasi oleh app store", prob: "medium", imp: "high", mit: "Ikuti panduan developer Google/Apple; review kebijakan sebelum submission" },
+        { desc: "Fragmentasi perangkat dan versi OS menyebabkan bug", prob: "high", imp: "medium", mit: "Buat matriks perangkat target; gunakan emulator dan perangkat fisik representatif", family: "mobile-compat" },
+        { desc: "Penolakan aplikasi oleh app store", prob: "medium", imp: "high", mit: "Ikuti panduan developer Google/Apple; review kebijakan sebelum submission", family: "app-store-rejection" },
         { desc: "Konsumsi baterai dan data yang berlebihan", prob: "medium", imp: "medium", mit: "Profil performa sejak tahap pengembangan; optimalkan background process" },
-        { desc: "Kebocoran data pengguna melalui izin aplikasi berlebihan", prob: "medium", imp: "high", mit: "Terapkan prinsip least privilege; audit izin aplikasi secara berkala" },
+        { desc: "Kebocoran data pengguna melalui izin aplikasi berlebihan", prob: "medium", imp: "high", mit: "Terapkan prinsip least privilege; audit izin aplikasi secara berkala", family: "credential-access" },
         { desc: "Keterlambatan feedback dari penguji beta", prob: "low", imp: "medium", mit: "Jadwalkan sesi pengujian beta lebih awal; siapkan form feedback terstruktur" },
-        { desc: "Ketidakpatuhan terhadap kebijakan privasi app store", prob: "low", imp: "high", mit: "Buat privacy policy yang komprehensif; review sebelum setiap submission" },
+        { desc: "Ketidakpatuhan terhadap kebijakan privasi app store", prob: "low", imp: "high", mit: "Buat privacy policy yang komprehensif; review sebelum setiap submission", family: "data-compliance" },
       ],
       costCategories: ["Riset & Analisis", "Desain UX/UI", "Pengembangan Mobile", "Integrasi Backend", "Pengujian QA", "Manajemen Proyek"],
     },
@@ -142,9 +150,9 @@ function generateTemplate(input) {
         { desc: "Kualitas data input rendah menyebabkan model tidak akurat", prob: "high", imp: "high", mit: "Definisikan kriteria kualitas data; lakukan profiling data sebelum pemodelan" },
         { desc: "Bias dalam data pelatihan menghasilkan keputusan tidak adil", prob: "medium", imp: "high", mit: "Analisis bias data; gunakan teknik fairness-aware ML" },
         { desc: "Overfitting model sehingga performa pada data baru buruk", prob: "medium", imp: "high", mit: "Gunakan cross-validation; pisahkan dataset training/validation/test" },
-        { desc: "Pelanggaran privasi data pengguna (GDPR/UU PDP)", prob: "medium", imp: "high", mit: "Terapkan anonymisasi/pseudonymisasi; buat data governance policy" },
+        { desc: "Pelanggaran privasi data pengguna (GDPR/UU PDP)", prob: "medium", imp: "high", mit: "Terapkan anonymisasi/pseudonymisasi; buat data governance policy", family: "data-compliance" },
         { desc: "Kapasitas komputasi tidak mencukupi untuk pelatihan model", prob: "low", imp: "medium", mit: "Estimasi kebutuhan komputasi lebih awal; pertimbangkan cloud computing" },
-        { desc: "Ketergantungan pada data pihak ketiga yang tidak stabil", prob: "medium", imp: "medium", mit: "Buat mekanisme backup data; negosiasikan SLA dengan penyedia data" },
+        { desc: "Ketergantungan pada data pihak ketiga yang tidak stabil", prob: "medium", imp: "medium", mit: "Buat mekanisme backup data; negosiasikan SLA dengan penyedia data", family: "third-party-integration" },
       ],
       costCategories: ["Pengumpulan & ETL Data", "Pengembangan Model AI/ML", "Infrastruktur Komputasi", "Validasi & Pengujian", "Dashboard & Visualisasi", "Manajemen Proyek"],
     },
@@ -172,11 +180,11 @@ function generateTemplate(input) {
       wbsPhases: ["Inisiasi & Perencanaan", "Asesmen Infrastruktur Saat Ini", "Desain Arsitektur", "Pengadaan & Instalasi", "Konfigurasi & Keamanan", "Pengujian & Validasi", "Go-Live & Penutupan"],
       risks: [
         { desc: "Keterlambatan pengadaan perangkat keras", prob: "medium", imp: "high", mit: "Identifikasi vendor lebih awal; siapkan rencana pengadaan alternatif" },
-        { desc: "Kerentanan keamanan jaringan (unauthorized access)", prob: "medium", imp: "high", mit: "Lakukan security hardening; implementasi zero-trust architecture" },
+        { desc: "Kerentanan keamanan jaringan (unauthorized access)", prob: "medium", imp: "high", mit: "Lakukan security hardening; implementasi zero-trust architecture", family: "network-security" },
         { desc: "Kegagalan komponen hardware selama implementasi", prob: "low", imp: "high", mit: "Beli komponen redundan; siapkan prosedur failover" },
-        { desc: "Ketidaksesuaian antara infrastruktur baru dan sistem lama", prob: "high", imp: "medium", mit: "Lakukan compatibility testing lebih awal; buat migration plan detail" },
-        { desc: "Downtime tidak terencana saat migrasi", prob: "medium", imp: "high", mit: "Jadwalkan maintenance window; siapkan rollback plan" },
-        { desc: "Ketidakpatuhan terhadap regulasi keamanan data dan ISO 27001", prob: "low", imp: "high", mit: "Review compliance checklist ISO 27001; libatkan tim keamanan informasi" },
+        { desc: "Ketidaksesuaian antara infrastruktur baru dan sistem lama", prob: "high", imp: "medium", mit: "Lakukan compatibility testing lebih awal; buat migration plan detail", family: "migration-compat" },
+        { desc: "Downtime tidak terencana saat migrasi", prob: "medium", imp: "high", mit: "Jadwalkan maintenance window; siapkan rollback plan", family: "migration-downtime" },
+        { desc: "Ketidakpatuhan terhadap regulasi keamanan data dan ISO 27001", prob: "low", imp: "high", mit: "Review compliance checklist ISO 27001; libatkan tim keamanan informasi", family: "data-compliance" },
       ],
       costCategories: ["Desain & Arsitektur", "Pengadaan Hardware/Software", "Instalasi & Konfigurasi", "Keamanan & Compliance", "Pengujian & Validasi", "Manajemen Proyek"],
     },
@@ -315,8 +323,9 @@ function generateTemplate(input) {
     project_context:  projectContext || "",
   };
 
-  // ── Risk Register ───────────────────────────────────────────────────────
-  const risk_register = meta.risks.map((r, i) => ({
+  // ── Risk Register (Phase 4: contextual, deliverable-aware) ──────────────
+  const contextualRisks = buildContextualRisks(userDeliverables, meta, input);
+  const risk_register = contextualRisks.map((r, i) => ({
     id: `R${String(i + 1).padStart(2, "0")}`,
     description: r.desc,
     probability: r.prob,
@@ -662,6 +671,345 @@ function getSubActivities(category, phaseIndex) {
   return cats[phaseIndex % cats.length] || [];
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 4 — Contextual Risk Register
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * buildContextualRisks(userDeliverables, meta, input)
+ *
+ * Generate a project-specific risk register by combining:
+ *  1. Relevant risks from the category template (scored by keyword match).
+ *  2. Deliverable-specific risks drawn from a lookup table keyed on
+ *     normalised keywords found in the user's deliverable text.
+ *  3. Universal project-management risks that apply to every project.
+ *
+ * Deduplication: two complementary mechanisms prevent duplicates:
+ *  • 6-word normalised key: catches identical phrasing
+ *  • family identifier (optional string on each risk): blocks semantically
+ *    equivalent risks with different wording (e.g. two "migration downtime"
+ *    risks, one from meta.risks and one from DELIVERABLE_RISK_TABLE).
+ *    Risks that share a family but have genuinely distinct causes should
+ *    use different family codes (e.g. "network-security" vs "web-security").
+ *
+ * When no deliverables are supplied the function returns meta.risks unchanged
+ * (full backward compatibility with the category-static path).
+ *
+ * SCHEMA per entry returned: { desc, prob, imp, mit }
+ * These are mapped to { id, description, probability, impact, mitigation }
+ * by the caller in generateTemplate().
+ *
+ * NOTE: All probability/impact values are planning estimates, not objectively
+ * measured ratings.
+ *
+ * @param {string[]} userDeliverables  Parsed deliverable lines (may be empty).
+ * @param {object}   meta              Category meta from categoryMeta map.
+ * @param {object}   input             Full form input (category, objective, etc.).
+ * @returns {{ desc, prob, imp, mit }[]}
+ */
+function buildContextualRisks(userDeliverables, meta, input) {
+  // ── Fallback: no deliverables → return category-static risks unchanged ────
+  if (!userDeliverables || userDeliverables.length === 0) {
+    return meta.risks;
+  }
+
+  // ── Build a keyword corpus from project context ───────────────────────────
+  const corpus = [
+    input.projectName    || "",
+    input.objective      || "",
+    input.projectContext || "",
+    ...userDeliverables,
+  ].join(" ").toLowerCase();
+
+  // ── Helper: normalise a risk description to a dedup key ──────────────────
+  // Take the first 6 words of the description, lowercased.
+  const dedupKey = (desc) =>
+    desc.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean).slice(0, 6).join(" ");
+
+  const seenKeys    = new Set(); // dedup by 6-word normalised description
+  const seenFamilies = new Set(); // dedup by risk-family identifier
+  const risks = [];
+
+  const addRisk = (r) => {
+    const key = dedupKey(r.desc);
+    if (seenKeys.has(key)) return;
+    // Block a second risk from the same family — same event, different wording.
+    if (r.family && seenFamilies.has(r.family)) return;
+    seenKeys.add(key);
+    if (r.family) seenFamilies.add(r.family);
+    risks.push(r);
+  };
+
+  // ── 1. Select relevant category risks (max 3, scored by corpus match) ────
+  // Score each category risk by counting corpus words that appear in its desc+mit.
+  const scoredMeta = meta.risks.map((r) => {
+    const text = (r.desc + " " + r.mit).toLowerCase();
+    const words = corpus.split(/\s+/).filter((w) => w.length > 4);
+    const hits  = words.filter((w) => text.includes(w)).length;
+    return { r, hits };
+  });
+  scoredMeta.sort((a, b) => b.hits - a.hits);
+  // Always include at least the top-3 from the category, regardless of hit count.
+  scoredMeta.slice(0, 3).forEach(({ r }) => addRisk(r));
+
+  // ── 2. Deliverable-specific risk lookup table ─────────────────────────────
+  // Each entry: { match: [...keywords], risks: [...{desc,prob,imp,mit}] }
+  // A deliverable triggers an entry when ANY of its keywords match the deliverable text.
+  // Keywords are matched as substrings of the lowercased deliverable string.
+  const DELIVERABLE_RISK_TABLE = [
+    // ── Payment / transaction ──────────────────────────────────────────────
+    {
+      match: ["payment", "pembayaran", "transaksi", "transaction", "wallet", "fintech"],
+      risks: [
+        {
+          desc: "Kegagalan transaksi pembayaran akibat gangguan gateway atau konektivitas jaringan",
+          prob: "medium", imp: "high",
+          mit: "Implementasi mekanisme retry dan notifikasi kegagalan; pilih payment gateway dengan SLA tinggi",
+        },
+        {
+          desc: "Risiko penipuan (fraud) dan akses tidak sah pada data transaksi keuangan",
+          prob: "medium", imp: "high",
+          mit: "Terapkan autentikasi dua faktor, enkripsi end-to-end, dan audit log transaksi",
+        },
+      ],
+    },
+    // ── IoT / sensor / device ──────────────────────────────────────────────
+    {
+      match: ["iot", "sensor", "device", "perangkat", "monitoring", "listrik", "electricity", "smart", "kontrol akses", "access control"],
+      risks: [
+        {
+          desc: "Perangkat IoT/sensor tidak dapat terhubung ke jaringan akibat interferensi atau konfigurasi yang salah",
+          prob: "high", imp: "medium",
+          mit: "Lakukan survei jaringan lapangan sebelum instalasi; siapkan prosedur konfigurasi ulang perangkat",
+        },
+        {
+          desc: "Data sensor tidak akurat atau hilang akibat kegagalan perangkat keras di lokasi fisik",
+          prob: "medium", imp: "medium",
+          mit: "Implementasi redundansi sensor pada titik kritis; tambahkan mekanisme heartbeat monitoring",
+        },
+        {
+          desc: "Celah keamanan pada perangkat IoT yang terhubung ke jaringan (firmware tidak diperbarui)",
+          prob: "medium", imp: "high",
+          mit: "Terapkan kebijakan pembaruan firmware terjadwal; segmentasi jaringan IoT dari jaringan utama",
+        },
+      ],
+    },
+    // ── Mobile application ─────────────────────────────────────────────────
+    {
+      match: ["mobile", "android", "ios", "aplikasi mobile", "app store"],
+      risks: [
+        {
+          desc: "Aplikasi mobile ditolak oleh platform app store karena tidak memenuhi kebijakan terbaru",
+          prob: "medium", imp: "high",
+          mit: "Review panduan kebijakan Google Play/App Store sebelum submission; siapkan dokumentasi privasi",
+        },
+        {
+          desc: "Kompatibilitas aplikasi mobile bermasalah pada versi OS atau tipe perangkat tertentu",
+          prob: "high", imp: "medium",
+          mit: "Definisikan matriks perangkat target; lakukan pengujian di emulator dan perangkat fisik representatif",
+        },
+      ],
+    },
+    // ── Web application / frontend / backend ───────────────────────────────
+    {
+      match: ["web", "website", "aplikasi web", "frontend", "backend", "api", "rest"],
+      risks: [
+        {
+          desc: "Perubahan kebutuhan pengguna di tengah proyek memperluas lingkup tanpa penyesuaian jadwal",
+          prob: "high", imp: "high",
+          mit: "Tetapkan proses perubahan formal (change request); lakukan review lingkup setiap sprint",
+          family: "scope-change",
+        },
+        {
+          desc: "Celah keamanan aplikasi web (XSS, SQL Injection, CSRF) membahayakan data pengguna",
+          prob: "medium", imp: "high",
+          mit: "Terapkan OWASP Top 10; lakukan code review keamanan dan pengujian penetrasi sebelum go-live",
+          family: "web-security",
+        },
+      ],
+    },
+    // ── Database / data storage ────────────────────────────────────────────
+    {
+      match: ["database", "basis data", "data storage", "mysql", "postgresql", "mongodb"],
+      risks: [
+        {
+          desc: "Korupsi atau kehilangan data akibat kegagalan database tanpa prosedur backup yang memadai",
+          prob: "low", imp: "high",
+          mit: "Implementasi backup otomatis harian; uji prosedur restore secara berkala",
+        },
+      ],
+    },
+    // ── Migration / cloud ──────────────────────────────────────────────────
+    {
+      match: ["migrasi", "migration", "cloud", "server", "infrastructure", "infrastruktur", "deployment"],
+      risks: [
+        {
+          desc: "Downtime layanan tidak terencana selama proses migrasi ke lingkungan baru",
+          prob: "medium", imp: "high",
+          mit: "Jadwalkan migrasi pada jendela pemeliharaan resmi; siapkan rollback plan yang telah diuji",
+          family: "migration-downtime",
+        },
+        {
+          desc: "Inkompatibilitas konfigurasi antara lingkungan lama dan baru menyebabkan kegagalan layanan",
+          prob: "high", imp: "medium",
+          mit: "Lakukan pengujian kompatibilitas di lingkungan staging sebelum cutover produksi",
+          family: "migration-compat",
+        },
+        {
+          desc: "Biaya operasional cloud melebihi estimasi akibat penggunaan sumber daya yang tidak terpantau",
+          prob: "medium", imp: "medium",
+          mit: "Aktifkan cost alerting dan budget cap di platform cloud; review penggunaan setiap dua minggu",
+        },
+      ],
+    },
+    // ── Disaster recovery / backup ─────────────────────────────────────────
+    {
+      match: ["disaster recovery", "backup", "recovery", "pemulihan", "keberlangsungan", "continuity"],
+      risks: [
+        {
+          desc: "Prosedur disaster recovery tidak teruji sehingga RTO/RPO tidak dapat dipenuhi saat insiden nyata",
+          prob: "medium", imp: "high",
+          mit: "Jadwalkan simulasi DR secara berkala; dokumentasikan dan validasi RTO/RPO setelah setiap uji coba",
+        },
+      ],
+    },
+    // ── Security / access control / authentication ─────────────────────────
+    {
+      match: ["keamanan", "security", "autentikasi", "authentication", "akses", "access", "enkripsi", "encryption", "firewall"],
+      risks: [
+        {
+          desc: "Akses tidak sah ke sistem akibat manajemen kredensial yang lemah atau konfigurasi hak akses yang salah",
+          prob: "medium", imp: "high",
+          mit: "Terapkan prinsip least privilege; aktifkan autentikasi multi-faktor untuk akun dengan hak tinggi",
+          family: "credential-access",
+        },
+      ],
+    },
+    // ── Compliance / regulation ────────────────────────────────────────────
+    {
+      match: ["regulasi", "compliance", "iso", "gdpr", "pdp", "uu pdp", "kepatuhan", "sertifikasi"],
+      risks: [
+        {
+          desc: "Ketidakpatuhan terhadap regulasi perlindungan data (UU PDP/GDPR) akibat penanganan data pribadi yang tidak sesuai",
+          prob: "medium", imp: "high",
+          mit: "Lakukan assessment compliance sebelum go-live; implementasi enkripsi data pribadi dan kebijakan retensi",
+          family: "data-compliance",
+        },
+      ],
+    },
+    // ── Dashboard / reporting / analytics ─────────────────────────────────
+    {
+      match: ["dashboard", "laporan", "report", "analitik", "analytics", "visualisasi"],
+      risks: [
+        {
+          desc: "Data yang ditampilkan di dashboard tidak akurat akibat kesalahan logika agregasi atau pipeline data",
+          prob: "medium", imp: "medium",
+          mit: "Lakukan validasi data lintas sistem; terapkan unit test untuk setiap kalkulasi laporan kritis",
+        },
+      ],
+    },
+    // ── Integration / API / third party ───────────────────────────────────
+    {
+      match: ["integrasi", "integration", "api pihak ketiga", "third party", "webhook", "external"],
+      risks: [
+        {
+          desc: "Perubahan atau gangguan layanan API pihak ketiga menghambat integrasi sistem",
+          prob: "medium", imp: "medium",
+          mit: "Identifikasi seluruh dependensi eksternal lebih awal; buat stub/mock API untuk pengembangan paralel",
+          family: "third-party-integration",
+        },
+      ],
+    },
+    // ── Documentation / knowledge transfer ────────────────────────────────
+    {
+      match: ["dokumentasi", "documentation", "runbook", "manual", "panduan", "serah terima"],
+      risks: [
+        {
+          desc: "Dokumentasi teknis tidak lengkap saat serah terima, menyebabkan kesulitan operasional tim pemelihara",
+          prob: "medium", imp: "medium",
+          mit: "Tetapkan standar dokumentasi sejak awal; jadikan kelengkapan dokumen sebagai kriteria penerimaan deliverable",
+        },
+      ],
+    },
+    // ── Testing / UAT ─────────────────────────────────────────────────────
+    {
+      match: ["pengujian", "testing", "uat", "quality assurance", "qa"],
+      risks: [
+        {
+          desc: "Pengujian penerimaan pengguna (UAT) menemukan defect kritis mendekati batas waktu rilis",
+          prob: "medium", imp: "high",
+          mit: "Libatkan pengguna akhir dalam pengujian iteratif sejak fase pengembangan; siapkan buffer waktu UAT",
+        },
+      ],
+    },
+  ];
+
+  // ── Cap constants ────────────────────────────────────────────────────────
+  // MAX_FROM_DELIVERABLES: max risks from deliverable + corpus scans combined.
+  // MAX_TOTAL enforced after universals; keeps the register readable (≤ 10 rows).
+  const MAX_FROM_DELIVERABLES = 7;
+  const MAX_TOTAL = 10;
+
+  // Apply the deliverable risk table: for each deliverable, check all entries.
+  for (const deliverable of userDeliverables) {
+    const dLower = deliverable.toLowerCase();
+    for (const entry of DELIVERABLE_RISK_TABLE) {
+      if (entry.match.some((kw) => dLower.includes(kw))) {
+        for (const r of entry.risks) {
+          addRisk(r);
+          if (risks.length >= MAX_FROM_DELIVERABLES) break;
+        }
+      }
+      if (risks.length >= MAX_FROM_DELIVERABLES) break;
+    }
+    if (risks.length >= MAX_FROM_DELIVERABLES) break;
+  }
+
+  // Also scan the full corpus for category-level keyword triggers (for context like "cloud" in objective).
+  // Only runs if deliverable scan did not already fill the quota.
+  if (risks.length < MAX_FROM_DELIVERABLES) {
+    for (const entry of DELIVERABLE_RISK_TABLE) {
+      if (entry.match.some((kw) => corpus.includes(kw))) {
+        for (const r of entry.risks) {
+          addRisk(r);
+          if (risks.length >= MAX_FROM_DELIVERABLES) break;
+        }
+      }
+      if (risks.length >= MAX_FROM_DELIVERABLES) break;
+    }
+  }
+
+  // ── 3. Universal project risks (added if not already present) ────────────
+  const universalRisks = [
+    {
+      desc: "Anggota tim kunci mengundurkan diri atau tidak tersedia, mengganggu kesinambungan pengerjaan",
+      prob: "low", imp: "high",
+      mit: "Dokumentasikan pengetahuan teknis secara berkala; siapkan rencana cadangan SDM dan onboarding cepat",
+      family: "team-availability",
+    },
+    {
+      desc: "Lingkup proyek bertambah tanpa penyesuaian jadwal dan anggaran (scope creep)",
+      prob: "medium", imp: "high",
+      mit: "Tetapkan baseline lingkup yang disetujui; kelola setiap permintaan perubahan melalui proses formal",
+    },
+  ];
+  for (const r of universalRisks) addRisk(r);
+
+  // ── 4. Enforce minimum of 6 risks ────────────────────────────────────────
+  // If still below 6 after all the above, pull remaining category risks in order.
+  if (risks.length < 6) {
+    for (const { r } of scoredMeta.slice(3)) {
+      addRisk(r);
+      if (risks.length >= 6) break;
+    }
+  }
+
+  // ── 5. Enforce maximum cap ───────────────────────────────────────────────
+  return risks.slice(0, MAX_TOTAL);
+}
+
+
 // ── Governance Review ───────────────────────────────────────────────────────
 
 /**
@@ -691,8 +1039,19 @@ function runGovernanceReview(doc, input) {
 
 /**
  * buildCobitMappings()
- * Pilih objective yang relevan dari COBIT_OBJECTIVES.
- * Jika daftar kosong (belum diisi), kembalikan pesan TODO.
+ * Pilih hingga 5 objective COBIT 2019 yang paling relevan dengan konteks proyek
+ * menggunakan pendekatan pencocokan kata kunci berbasis tag.
+ *
+ * PENDEKATAN (deterministik, tanpa AI eksternal):
+ *  1. Bangun korpus sinyal dari input: kategori, tujuan, nama proyek, deliverable.
+ *  2. Hitung skor setiap objective dari jumlah tag-nya yang cocok dengan korpus.
+ *  3. Tambahkan bonus kategori untuk objective yang secara struktural relevan
+ *     terhadap tipe proyek tertentu (mis. BAI04 selalu relevan untuk infrastruktur).
+ *  4. Ambil 5 teratas; urutan deklarasi sebagai tiebreaker (deterministik).
+ *  5. Hasilkan alasan spesifik yang merujuk elemen dokumen nyata.
+ *
+ * CATATAN: Ini adalah rekomendasi perencanaan indikatif, bukan audit COBIT resmi,
+ * penilaian kematangan, atau sertifikasi kepatuhan.
  */
 function buildCobitMappings(doc, input, objectives) {
   if (!objectives || objectives.length === 0) {
@@ -704,20 +1063,110 @@ function buildCobitMappings(doc, input, objectives) {
     }];
   }
 
-  // Pilih semua objective – dalam proyek nyata ini bisa difilter secara semantik.
-  // Di sini kita petakan setiap objective ke bagian dokumen yang relevan.
-  return objectives.slice(0, 5).map((obj) => ({
+  // ── 1. Bangun korpus sinyal ──────────────────────────────────────────────
+  // S1.A-2 / S1.E-22: Guard all charter arrays against null/undefined
+  const safeCharterDeliverables = Array.isArray(doc.charter?.deliverables) ? doc.charter.deliverables : [];
+  const safeCharterInScope      = Array.isArray(doc.charter?.in_scope)     ? doc.charter.in_scope     : [];
+  const safeRiskRegister        = Array.isArray(doc.risk_register)         ? doc.risk_register        : [];
+
+  const corpus = [
+    input.projectName   || "",
+    input.objective     || "",
+    input.category      || "",
+    input.keyDeliverables || "",
+    input.projectContext  || "",
+    ...safeCharterDeliverables,
+    ...safeCharterInScope,
+    // Sample risk descriptions to catch security/compliance signals
+    ...safeRiskRegister.slice(0, 6).map((r) => (r.description || "") + " " + (r.mitigation || "")),
+  ].join(" ").toLowerCase();
+
+  // ── 2. Bonus per kategori proyek ─────────────────────────────────────────
+  // Daftar objective yang secara struktural penting untuk setiap kategori,
+  // bahkan jika kata kunci tidak muncul secara eksplisit di input.
+  const CATEGORY_BONUS = {
+    web:            ["BAI03", "BAI02", "APO11", "DSS05", "MEA03"],
+    mobile:         ["BAI03", "BAI02", "APO11", "DSS05", "APO04"],
+    data_ai:        ["APO14", "APO04", "APO12", "DSS05", "MEA03"],
+    infrastructure: ["BAI04", "BAI10", "DSS01", "DSS04", "BAI07"],
+  };
+  const bonusCodes = new Set(CATEGORY_BONUS[input.category] || []);
+
+  // Objective yang universal untuk semua proyek (selalu mendapat sedikit bonus)
+  const UNIVERSAL_BONUS = new Set(["BAI11", "EDM02", "APO12"]);
+
+  // ── 3. Hitung skor setiap objective ─────────────────────────────────────
+  const scored = objectives.map((obj) => {
+    const tags = Array.isArray(obj.tags) ? obj.tags : [];
+    // Hitung berapa banyak tag yang muncul di korpus (substring match)
+    const tagHits = tags.filter((tag) => corpus.includes(tag));
+    let score = tagHits.length;
+    if (bonusCodes.has(obj.code))   score += 3;
+    if (UNIVERSAL_BONUS.has(obj.code)) score += 1;
+    return { obj, score, tagHits };
+  });
+
+  // ── 4. Urutkan dan ambil 5 teratas ───────────────────────────────────────
+  // sort() stabil di V8, sehingga urutan deklarasi dipertahankan sebagai tiebreaker.
+  scored.sort((a, b) => b.score - a.score);
+  const top5 = scored.slice(0, 5);
+
+  // ── 5. Kembalikan pemetaan dengan alasan spesifik ────────────────────────
+  return top5.map(({ obj, tagHits }) => ({
     code: obj.code,
     name: obj.name,
-    reason: buildMappingReason(obj, doc, input),
+    reason: buildMappingReason(obj, doc, input, tagHits),
     unknown: false,
   }));
 }
 
-function buildMappingReason(obj, doc, input) {
-  // Buat alasan satu kalimat yang merujuk ke bagian dokumen
-  const deliverablesSample = doc.charter.deliverables[0] || "deliverable utama";
-  return `Objective ${obj.code} relevan karena proyek "${input.projectName}" mencakup "${deliverablesSample}" yang memerlukan ${obj.goal || "tata kelola yang baik"}.`;
+/**
+ * buildMappingReason()
+ * Hasilkan penjelasan satu-dua kalimat yang spesifik untuk mengapa objective ini
+ * relevan dengan proyek ini. Merujuk elemen dokumen nyata (deliverable, kategori,
+ * risiko) alih-alih teks boilerplate generik.
+ */
+function buildMappingReason(obj, doc, input, tagHits) {
+  const hits = Array.isArray(tagHits) ? tagHits : [];
+  const projectName  = input.projectName || "proyek ini";
+  const categoryMap  = {
+    web:            "pengembangan aplikasi web",
+    mobile:         "pengembangan aplikasi mobile",
+    data_ai:        "proyek data/AI",
+    infrastructure: "migrasi/implementasi infrastruktur TI",
+  };
+  const categoryLabel = categoryMap[input.category] || "proyek TI";
+
+  // Ambil deliverable pertama yang relevan, atau fallback ke kategori
+  // S1.A-2: Guard against null deliverables
+  const firstDeliverable = (Array.isArray(doc.charter?.deliverables) ? doc.charter.deliverables : [])[0];
+  const anchor = firstDeliverable
+    ? `deliverable "${firstDeliverable}"`
+    : `lingkup ${categoryLabel}`;
+
+  // Susun kalimat berdasarkan domain objective
+  const domain = obj.code.slice(0, 3); // "EDM", "APO", "BAI", "DSS", "MEA"
+
+  const domainIntro = {
+    EDM: `Dari sisi tata kelola (EDM), ${obj.name} relevan untuk memastikan`,
+    APO: `Dari sisi perencanaan (APO), ${obj.name} relevan untuk mengelola`,
+    BAI: `Dari sisi pembangunan (BAI), ${obj.name} relevan untuk`,
+    DSS: `Dari sisi operasional (DSS), ${obj.name} relevan untuk`,
+    MEA: `Dari sisi pemantauan (MEA), ${obj.name} relevan untuk`,
+  }[domain] || `Objective ${obj.code} relevan untuk`;
+
+  // Bangun konteks spesifik dari sinyal yang terdeteksi
+  let context = "";
+  if (hits.length > 0) {
+    // Pilih maksimal 2 tag yang paling informatif (hindari kata terlalu pendek)
+    const shown = hits.filter((t) => t.length > 3).slice(0, 2);
+    if (shown.length > 0) {
+      context = ` — sinyal terdeteksi: ${shown.join(", ")}`;
+    }
+  }
+
+  return `${domainIntro} aspek ${anchor} pada proyek "${projectName}" (${categoryLabel})${context}. ` +
+    `Ini adalah rekomendasi perencanaan indikatif, bukan audit atau sertifikasi COBIT resmi.`;
 }
 
 function buildKPIs(doc, input, mappings) {
@@ -734,7 +1183,8 @@ function buildKPIs(doc, input, mappings) {
     },
     {
       kpi: "Jumlah risiko kritis yang dimitigasi",
-      target: `${doc.risk_register.filter((r) => r.impact === "high").length} risiko berdampak tinggi memiliki rencana mitigasi aktif`,
+      // S1.A-2 / S1.E-22: Guard against null risk_register from AI
+      target: `${(Array.isArray(doc.risk_register) ? doc.risk_register : []).filter((r) => r.impact === "high").length} risiko berdampak tinggi memiliki rencana mitigasi aktif`,
       objective: mappings[2]?.code || mappings[0]?.code || "N/A",
     },
     {
@@ -775,7 +1225,8 @@ function computeScore(doc, input) {
   });
 
   // K2: Risiko keamanan dan kepatuhan tercakup dalam risk register
-  const securityRisks = doc.risk_register.filter((r) =>
+  // S1.A-2 / S1.E-22: Guard against null risk_register
+  const securityRisks = (Array.isArray(doc.risk_register) ? doc.risk_register : []).filter((r) =>
     /(keamanan|kepatuhan|security|compliance|privasi|data|regulasi|UU|ISO|GDPR)/i.test(r.description + r.mitigation)
   );
   const k2Score = securityRisks.length >= 2 ? 2 : securityRisks.length === 1 ? 1 : 0;
@@ -792,23 +1243,28 @@ function computeScore(doc, input) {
   });
 
   // K3: Indikator keberhasilan yang terukur ada
-  const hasKPIHint = doc.charter.milestones.length >= 3 && doc.charter.deliverables.length >= 3;
-  const k3Score = hasKPIHint ? 2 : doc.charter.milestones.length > 0 ? 1 : 0;
+  // S1.A-2: Guard missing arrays — charter may arrive from AI without these fields
+  const safeMilestones   = Array.isArray(doc.charter.milestones)   ? doc.charter.milestones   : [];
+  const safeDeliverables = Array.isArray(doc.charter.deliverables) ? doc.charter.deliverables : [];
+  const hasKPIHint = safeMilestones.length >= 3 && safeDeliverables.length >= 3;
+  const k3Score = hasKPIHint ? 2 : safeMilestones.length > 0 ? 1 : 0;
   criteria.push({
     id: "K3",
     label: "Indikator keberhasilan yang terukur ada",
     score: k3Score,
     max: 2,
     reason: k3Score === 2
-      ? `${doc.charter.milestones.length} milestone dan ${doc.charter.deliverables.length} deliverable teridentifikasi.`
+      ? `${safeMilestones.length} milestone dan ${safeDeliverables.length} deliverable teridentifikasi.`
       : k3Score === 1
       ? "Milestone ada namun belum memadai sebagai indikator keberhasilan."
       : "data tidak cukup – milestone dan deliverable tidak ditemukan.",
   });
 
   // K4: Peran dan akuntabilitas stakeholder jelas
-  const stakeholderDetail = doc.charter.stakeholders.filter((s) => s.includes("–") || s.includes("-")).length;
-  const k4Score = stakeholderDetail >= 3 ? 2 : doc.charter.stakeholders.length >= 2 ? 1 : 0;
+  // S1.A-2: Guard missing stakeholders array
+  const safeStakeholders = Array.isArray(doc.charter.stakeholders) ? doc.charter.stakeholders : [];
+  const stakeholderDetail = safeStakeholders.filter((s) => s.includes("–") || s.includes("-")).length;
+  const k4Score = stakeholderDetail >= 3 ? 2 : safeStakeholders.length >= 2 ? 1 : 0;
   criteria.push({
     id: "K4",
     label: "Peran dan akuntabilitas stakeholder jelas",
@@ -822,7 +1278,7 @@ function computeScore(doc, input) {
   });
 
   // K5: Manfaat proyek terdefinisi
-  const hasDeliverables = doc.charter.deliverables.length >= 3;
+  const hasDeliverables = safeDeliverables.length >= 3;
   const hasBenefit = doc.charter.objective && doc.charter.objective.length > 20;
   const k5Score = hasDeliverables && hasBenefit ? 2 : hasBenefit ? 1 : 0;
   criteria.push({
@@ -975,14 +1431,517 @@ function setLoading(loading) {
   if (spinner) spinner.classList.toggle("hidden", !loading);
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 5 — WBS-based Gantt Chart
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * buildGanttSchedule(wbs, input)
+ *
+ * Derives a Gantt schedule from the WBS L1 phases and the Charter date/duration.
+ *
+ * Algorithm:
+ *  1. Extract L1 phases from the WBS array (level === 1 items).
+ *  2. Assign deterministic weights:
+ *     - Inisiasi:    12% of total duration (always first slot)
+ *     - Penutupan:   10% of total duration (always last slot)
+ *     - Pengujian:   15% of total duration (always second-to-last)
+ *     - Pengembangan phases: remaining 63% split equally across dev phases
+ *  3. Sequence tasks with overlap rules:
+ *     - Dev phases overlap by 15% (next starts when current is 85% done).
+ *     - Testing starts strictly after last dev phase finishes (no overlap).
+ *     - Penutupan starts strictly after testing finishes.
+ *  4. All durations are in fractional weeks (rounded to 1 decimal for display).
+ *  5. All dates clamped so no task exceeds projectEnd.
+ *  6. When startDate is absent, use week offsets (no invented calendar dates).
+ *
+ * @param {object[]} wbs    WBS array (same schema as currentDoc.wbs)
+ * @param {object}   input  Form input { startDate, duration, ... }
+ * @returns {object}  { tasks, startDate, projectEndWeek, hasCalendarDates }
+ *
+ * Each task: { id, name, isMilestone, startWeek, endWeek, durationWeeks,
+ *              startDate?, endDate?, assumption }
+ */
+function buildGanttSchedule(wbs, input) {
+  const totalWeeks = Math.max(1, Number(input.duration) || 1);
+  const hasCalendarDates = !!(input.startDate && input.startDate.trim());
+
+  // ── Extract L1 phases in order ───────────────────────────────────────────
+  const l1Phases = wbs.filter((w) => w.level === 1).map((w) => w.name);
+
+  if (l1Phases.length === 0) return { tasks: [], startDate: null, projectEndWeek: totalWeeks, hasCalendarDates };
+
+  // ── Identify structural roles ────────────────────────────────────────────
+  // Inisiasi is always first, Penutupan is always last, Pengujian is second-to-last.
+  // Everything between them is Pengembangan.
+  const initiationIdx = 0;
+  const closingIdx    = l1Phases.length - 1;
+  const testingIdx    = l1Phases.length - 2;
+  const devIndices    = [];
+  for (let i = 1; i < l1Phases.length - 2; i++) devIndices.push(i);
+  // Fallback: if only 1 or 2 phases exist, treat all as dev
+  const hasTestingPhase  = l1Phases.length >= 3;
+  const hasClosingPhase  = l1Phases.length >= 2;
+
+  // ── Compute durations (in weeks) per phase ───────────────────────────────
+  const W_INIT    = 0.12;
+  const W_TEST    = hasTestingPhase  ? 0.15 : 0;
+  const W_CLOSE   = hasClosingPhase  ? 0.10 : 0;
+  const W_DEV_TOT = Math.max(0, 1 - W_INIT - W_TEST - W_CLOSE);
+  const devCount  = devIndices.length || 1;
+  const W_DEV_EACH = W_DEV_TOT / devCount;
+
+  // Map phase index → duration in weeks
+  const phaseDurationWeeks = l1Phases.map((_, idx) => {
+    if (idx === initiationIdx)                         return Math.max(1, Math.round(W_INIT * totalWeeks * 10) / 10);
+    if (hasTestingPhase  && idx === testingIdx)        return Math.max(1, Math.round(W_TEST * totalWeeks * 10) / 10);
+    if (hasClosingPhase  && idx === closingIdx)        return Math.max(1, Math.round(W_CLOSE * totalWeeks * 10) / 10);
+    return Math.max(1, Math.round(W_DEV_EACH * totalWeeks * 10) / 10);
+  });
+
+  // ── Schedule phases (with 15% dev-to-dev overlap) ────────────────────────
+  // OVERLAP_FACTOR: next dev phase starts when current is this fraction done.
+  const OVERLAP_FACTOR = 0.85;
+
+  const startWeeks  = new Array(l1Phases.length).fill(0);
+  const endWeeks    = new Array(l1Phases.length).fill(0);
+
+  // Inisiasi starts at week 0
+  startWeeks[initiationIdx] = 0;
+  endWeeks[initiationIdx]   = phaseDurationWeeks[initiationIdx];
+
+  if (l1Phases.length === 1) {
+    // Single phase — fits the full duration
+    endWeeks[0] = totalWeeks;
+  } else if (devIndices.length === 0) {
+    // Only init + optional testing + closing
+    let cursor = endWeeks[initiationIdx];
+    for (let i = 1; i < l1Phases.length; i++) {
+      startWeeks[i] = cursor;
+      endWeeks[i]   = Math.min(totalWeeks, cursor + phaseDurationWeeks[i]);
+      cursor = endWeeks[i];
+    }
+  } else {
+    // Normal multi-phase schedule
+    // Dev phases: first dev starts after init; subsequent devs overlap at OVERLAP_FACTOR
+    let devCursor = endWeeks[initiationIdx];
+    devIndices.forEach((idx, di) => {
+      startWeeks[idx] = (di === 0) ? devCursor : devCursor;
+      endWeeks[idx]   = Math.min(totalWeeks, startWeeks[idx] + phaseDurationWeeks[idx]);
+      // Next dev starts after OVERLAP_FACTOR of this dev's duration
+      devCursor = startWeeks[idx] + phaseDurationWeeks[idx] * OVERLAP_FACTOR;
+    });
+
+    // Identify actual end of last dev phase for testing start
+    const lastDevEnd = endWeeks[devIndices[devIndices.length - 1]];
+
+    if (hasTestingPhase) {
+      startWeeks[testingIdx] = lastDevEnd;
+      endWeeks[testingIdx]   = Math.min(totalWeeks, lastDevEnd + phaseDurationWeeks[testingIdx]);
+    }
+    if (hasClosingPhase) {
+      const testEnd = hasTestingPhase ? endWeeks[testingIdx] : lastDevEnd;
+      startWeeks[closingIdx] = testEnd;
+      endWeeks[closingIdx]   = Math.min(totalWeeks, testEnd + phaseDurationWeeks[closingIdx]);
+    }
+  }
+
+  // ── Pin the closing milestone exactly to the planned project end ──────────
+  // Rounding of individual phase durations can leave a gap of up to ~1 week
+  // between the last activity and the project end. The closing task/milestone
+  // is pinned to totalWeeks so the Gantt end matches the Charter finish date.
+  // The gap (if any) is surfaced as an explicit "Schedule Buffer" row.
+  let bufferWeeks = 0;
+  if (hasClosingPhase) {
+    const lastWorkEnd = endWeeks[closingIdx]; // before pinning
+    bufferWeeks = Math.round((totalWeeks - lastWorkEnd) * 10) / 10;
+    // Move the closing phase to end exactly at totalWeeks
+    if (bufferWeeks > 0) {
+      startWeeks[closingIdx] = Math.round((startWeeks[closingIdx] + bufferWeeks) * 10) / 10;
+      endWeeks[closingIdx]   = totalWeeks;
+    }
+  }
+
+  // ── Convert weeks to calendar dates if startDate provided ────────────────
+  const originDate = hasCalendarDates ? new Date(input.startDate) : null;
+
+  const weekToDate = (weeks) => {
+    if (!originDate) return null;
+    const d = new Date(originDate);
+    // Use exact integer days (same formula as Charter: start + duration*7 days)
+    d.setDate(d.getDate() + Math.round(weeks * 7));
+    return d;
+  };
+
+  const fmtDate = (d) =>
+    d ? d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : null;
+
+  // ── Build task objects ────────────────────────────────────────────────────
+  const tasks = l1Phases.map((name, idx) => {
+    const sw  = Math.round(startWeeks[idx] * 10) / 10;
+    const ew  = Math.round(endWeeks[idx]   * 10) / 10;
+    const dur = Math.max(0.5, Math.round((ew - sw) * 10) / 10);
+
+    // Closing phase (last index) is the project milestone marker.
+    const isMilestone = (hasClosingPhase && idx === closingIdx);
+
+    // Scheduling assumption label
+    let assumption;
+    if (idx === initiationIdx)
+      assumption = `Estimasi: ${Math.round(W_INIT * 100)}% durasi total`;
+    else if (hasTestingPhase && idx === testingIdx)
+      assumption = `Estimasi: ${Math.round(W_TEST * 100)}% durasi total; dimulai setelah semua pengembangan selesai`;
+    else if (hasClosingPhase && idx === closingIdx)
+      assumption = `Estimasi: ${Math.round(W_CLOSE * 100)}% durasi total; milestone selesai tepat pada akhir durasi proyek`;
+    else {
+      const overlapNote = devIndices.indexOf(idx) > 0 ? `; overlap 15% dengan fase sebelumnya` : `; dimulai setelah inisiasi`;
+      assumption = `Estimasi: ${Math.round(W_DEV_EACH * 100)}% durasi total per deliverable${overlapNote}`;
+    }
+
+    const sd = weekToDate(sw);
+    const ed = weekToDate(ew);
+
+    return {
+      id:            String(idx + 1),
+      name,
+      isMilestone,
+      startWeek:     sw,
+      endWeek:       ew,
+      durationWeeks: dur,
+      startDate:     sd,
+      endDate:       ed,
+      startDateStr:  fmtDate(sd),
+      endDateStr:    fmtDate(ed),
+      assumption,
+    };
+  });
+
+  // ── Inject Schedule Buffer row if the gap is meaningful (≥ 0.5 weeks) ───
+  // The buffer sits between the last work activity and the closing phase.
+  // It is NOT a work task — it represents planned contingency/float time.
+  if (hasClosingPhase && bufferWeeks >= 0.5) {
+    const bufStartWeek = Math.round((startWeeks[closingIdx] - bufferWeeks) * 10) / 10;
+    const bufEndWeek   = startWeeks[closingIdx];
+    const bufSD = weekToDate(bufStartWeek);
+    const bufED = weekToDate(bufEndWeek);
+    // Insert immediately before the closing task (second-to-last position)
+    tasks.splice(tasks.length - 1, 0, {
+      id:            `${tasks.length}b`,
+      name:          "Schedule Buffer (Cadangan Waktu)",
+      isMilestone:   false,
+      isBuffer:      true,          // renderer uses this to style differently
+      startWeek:     bufStartWeek,
+      endWeek:       bufEndWeek,
+      durationWeeks: bufferWeeks,
+      startDate:     bufSD,
+      endDate:       bufED,
+      startDateStr:  fmtDate(bufSD),
+      endDateStr:    fmtDate(bufED),
+      assumption:    `Cadangan waktu estimasi (float); bukan aktivitas kerja. Muncul karena pembulatan alokasi durasi fase.`,
+    });
+  }
+
+  // ── Final validation guard ───────────────────────────────────────────────
+  // Ensure no task has negative duration or exceeds project horizon.
+  tasks.forEach((t) => {
+    if (t.endWeek > totalWeeks) t.endWeek = totalWeeks;
+    if (t.startWeek > totalWeeks) t.startWeek = totalWeeks;
+    if (t.durationWeeks < 0) t.durationWeeks = 0;
+  });
+
+  return { tasks, projectEndWeek: totalWeeks, hasCalendarDates, originDate };
+}
+
+/**
+ * renderGantt(ganttData)
+ *
+ * Renders an SVG-based horizontal Gantt chart into #gantt-content.
+ * Features:
+ *  - Phase/task labels on the left
+ *  - Horizontal bars proportional to duration
+ *  - Time axis with tick marks (weeks or dates)
+ *  - Milestones shown as diamonds
+ *  - Horizontal scroll on narrow screens
+ *  - Print-safe (no clip, forced page-break)
+ *
+ * @param {object} ganttData  Return value of buildGanttSchedule()
+ * @param {object} input      Form input (for disclaimer text)
+ */
+function renderGantt(ganttData, input) {
+  const container = $("gantt-content");
+  if (!container) return;
+
+  const { tasks, projectEndWeek, hasCalendarDates, originDate } = ganttData;
+
+  if (!tasks || tasks.length === 0) {
+    container.innerHTML = `<p class="text-slate-400 italic text-sm py-4">Gantt tidak tersedia untuk dokumen ini.</p>`;
+    return;
+  }
+
+  // ── Layout constants ─────────────────────────────────────────────────────
+  const LABEL_W    = 220;   // px — left label column
+  const ROW_H      = 34;    // px — row height
+  const BAR_H      = 20;    // px — bar height within row
+  const BAR_PAD_V  = (ROW_H - BAR_H) / 2;
+  const HEADER_H   = 38;    // px — time axis header height
+  const TICK_COUNT = Math.min(projectEndWeek, 20); // max 20 ticks
+  const CHART_W    = 700;   // px — timeline draw area (scrollable)
+  const SVG_W      = LABEL_W + CHART_W;
+  const SVG_H      = HEADER_H + tasks.length * ROW_H + 20; // +20 bottom pad
+
+  const totalW = projectEndWeek;
+
+  // Week → px
+  const xOf = (week) => LABEL_W + (week / totalW) * CHART_W;
+
+  // Colour palette per structural role
+  const barColor = (t, idx) => {
+    if (t.isBuffer)                                       return "#94a3b8"; // slate-400 — buffer
+    if (t.isMilestone)                                    return "#7c3aed"; // purple
+    const name = t.name.toLowerCase();
+    if (name.includes("inisiasi") || name.includes("perencanaan")) return "#1e40af"; // blue
+    if (name.includes("pengujian") || name.includes("qa"))         return "#dc2626"; // red
+    if (name.includes("penutupan") || name.includes("closing"))    return "#475569"; // slate
+    // Pengembangan — cycle through teal shades
+    const devColors = ["#0d9488", "#0891b2", "#047857", "#0369a1", "#065f46"];
+    return devColors[idx % devColors.length];
+  };
+
+  // ── Tick intervals ───────────────────────────────────────────────────────
+  // Choose a nice tick interval so we get ≤20 ticks
+  const rawInterval = totalW / TICK_COUNT;
+  const tickInterval = rawInterval <= 1 ? 1 : rawInterval <= 2 ? 2 : rawInterval <= 4 ? 4 : 5;
+  const ticks = [];
+  for (let w = 0; w <= totalW; w += tickInterval) ticks.push(w);
+  if (ticks[ticks.length - 1] < totalW) ticks.push(totalW);
+
+  // ── Generate tick labels ──────────────────────────────────────────────────
+  const tickLabel = (w) => {
+    if (hasCalendarDates && originDate) {
+      const d = new Date(originDate);
+      d.setDate(d.getDate() + Math.round(w * 7));
+      return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+    }
+    return `W${w}`;
+  };
+
+  // ── Build SVG rows ────────────────────────────────────────────────────────
+  const rowsSVG = tasks.map((t, idx) => {
+    const y       = HEADER_H + idx * ROW_H;
+    const barX    = xOf(t.startWeek);
+    const barW    = Math.max(4, xOf(t.endWeek) - xOf(t.startWeek));
+    const midY    = y + BAR_PAD_V + BAR_H / 2;
+    const color   = barColor(t, idx);
+
+    // Background alternating stripe
+    const stripe = idx % 2 === 0
+      ? `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="#f8fafc"/>`
+      : `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="#ffffff"/>`;
+
+    // Label (truncated at LABEL_W - 12 px)
+    const label = `<text x="${LABEL_W - 10}" y="${midY + 4.5}" text-anchor="end"
+        font-family="Inter,system-ui,sans-serif" font-size="11" fill="#334155"
+        class="gantt-label">${escHtml(t.name.length > 28 ? t.name.slice(0, 26) + "…" : t.name)}</text>`;
+
+    let barEl;
+    if (t.isBuffer) {
+      // Schedule Buffer: hatched grey bar to distinguish from work
+      barEl = `
+        <rect x="${barX}" y="${y + BAR_PAD_V}" width="${barW}" height="${BAR_H}"
+          rx="4" ry="4" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 2"/>
+        <text x="${barX + barW + 5}" y="${midY + 4}" font-family="Inter,system-ui,sans-serif"
+          font-size="10" fill="#94a3b8" font-style="italic">${t.durationWeeks}w float</text>`;
+    } else if (t.isMilestone) {
+      // Closing phase: draw the activity bar + a milestone diamond pinned at project end (endWeek = totalWeeks)
+      const DS = 9; // diamond half-size
+      const diamondX = Math.min(xOf(t.endWeek), LABEL_W + CHART_W - DS - 2);
+      barEl = `
+        <rect x="${barX}" y="${y + BAR_PAD_V}" width="${barW}" height="${BAR_H}"
+          rx="4" ry="4" fill="${color}" opacity="0.55"/>
+        <polygon points="${diamondX},${midY - DS} ${diamondX + DS},${midY} ${diamondX},${midY + DS} ${diamondX - DS},${midY}"
+          fill="${color}" opacity="0.95"/>
+        <text x="${diamondX + DS + 4}" y="${midY + 4}" font-family="Inter,system-ui,sans-serif"
+          font-size="10" fill="${color}" font-weight="600">Milestone</text>`;
+    } else {
+      // Standard work bar
+      barEl = `
+        <rect x="${barX}" y="${y + BAR_PAD_V}" width="${barW}" height="${BAR_H}"
+          rx="4" ry="4" fill="${color}" opacity="0.88"/>
+        <text x="${barX + barW + 5}" y="${midY + 4}" font-family="Inter,system-ui,sans-serif"
+          font-size="10" fill="#64748b">${t.durationWeeks}w</text>`;
+    }
+
+    // Vertical separator after label column
+    const sep = `<line x1="${LABEL_W}" y1="${y}" x2="${LABEL_W}" y2="${y + ROW_H}" stroke="#e2e8f0" stroke-width="1"/>`;
+
+    return stripe + label + sep + barEl;
+  }).join("\n");
+
+  // ── Time axis ─────────────────────────────────────────────────────────────
+  const ticksSVG = ticks.map((w) => {
+    const x = xOf(w);
+    const lbl = tickLabel(w);
+    return `
+      <line x1="${x}" y1="${HEADER_H - 6}" x2="${x}" y2="${SVG_H - 20}" stroke="#e2e8f0" stroke-width="1"/>
+      <text x="${x}" y="${HEADER_H - 10}" text-anchor="middle" font-family="Inter,system-ui,sans-serif"
+        font-size="10" fill="#94a3b8">${lbl}</text>`;
+  }).join("\n");
+
+  // Axis baseline
+  const axisLine = `<line x1="${LABEL_W}" y1="${HEADER_H}" x2="${SVG_W}" y2="${HEADER_H}" stroke="#cbd5e1" stroke-width="1.5"/>`;
+
+  // ── Legend ────────────────────────────────────────────────────────────────
+  const legendSVG = `
+    <rect x="${LABEL_W + 8}" y="6" width="14" height="10" rx="2" fill="#0d9488" opacity="0.88"/>
+    <text x="${LABEL_W + 26}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">Aktivitas</text>
+    <polygon points="${LABEL_W + 110},11 ${LABEL_W + 119},6 ${LABEL_W + 128},11 ${LABEL_W + 119},16"
+      fill="#7c3aed" opacity="0.9"/>
+    <text x="${LABEL_W + 134}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">Milestone</text>
+    <rect x="${LABEL_W + 215}" y="6" width="14" height="10" rx="2" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 2"/>
+    <text x="${LABEL_W + 234}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#94a3b8" font-style="italic">Buffer</text>`;
+
+  // ── Compose SVG ───────────────────────────────────────────────────────────
+  const svgContent = `
+    ${legendSVG}
+    ${ticksSVG}
+    ${axisLine}
+    ${rowsSVG}
+    <line x1="${LABEL_W}" y1="0" x2="${LABEL_W}" y2="${SVG_H}" stroke="#e2e8f0" stroke-width="1"/>`;
+
+  const disclaimer = hasCalendarDates
+    ? `Jadwal di atas adalah <strong>estimasi sistem</strong> — bukan komitmen aktual. Tanggal dihitung dari tanggal mulai dan durasi yang diinput.`
+    : `Tanggal mulai proyek belum ditentukan. Timeline ditampilkan dalam <strong>minggu relatif</strong> (W0 = awal proyek). Jadwal di atas adalah estimasi perencanaan.`;
+
+  // ── Detail table HTML ──────────────────────────────────────────────────────
+  const detailRows = tasks.map((t) => {
+    const startLabel = t.startDateStr || `Minggu ${t.startWeek}`;
+    const endLabel   = t.endDateStr   || `Minggu ${t.endWeek}`;
+    const typeLabel  = t.isBuffer
+      ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-300 italic">⋯ Buffer</span>`
+      : t.isMilestone
+      ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-100 text-purple-800 border border-purple-200">◆ Milestone</span>`
+      : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">— Aktivitas</span>`;
+    const rowClass = t.isBuffer ? "border-b border-slate-100 bg-slate-50 opacity-70" : "border-b border-slate-100";
+    return `<tr class="${rowClass}">
+      <td class="px-3 py-2 font-mono text-xs text-slate-400">${escHtml(t.id)}</td>
+      <td class="px-3 py-2 text-sm ${t.isBuffer ? 'text-slate-400 italic' : 'text-slate-700 font-medium'}">${escHtml(t.name)}</td>
+      <td class="px-3 py-2 text-center">${typeLabel}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">${escHtml(startLabel)}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">${escHtml(endLabel)}</td>
+      <td class="px-3 py-2 text-xs text-slate-500 text-center">${t.durationWeeks}w</td>
+      <td class="px-3 py-2 text-xs text-slate-400 italic">${escHtml(t.assumption)}</td>
+    </tr>`;
+  }).join("");
+
+  container.innerHTML = `
+    <!-- Disclaimer -->
+    <div class="flex items-start gap-2 p-3 mb-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+      <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span>${disclaimer}</span>
+    </div>
+
+    <!-- Gantt SVG (scrollable) -->
+    <div class="gantt-scroll-wrap" style="overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid #e2e8f0; border-radius:12px; background:#fff;">
+      <svg id="gantt-svg" xmlns="http://www.w3.org/2000/svg"
+        width="${SVG_W}" height="${SVG_H}"
+        viewBox="0 0 ${SVG_W} ${SVG_H}"
+        role="img" aria-label="Gantt Chart Proyek"
+        style="display:block; min-width:${SVG_W}px;">
+        <title>Gantt Chart — Jadwal Proyek</title>
+        ${svgContent}
+      </svg>
+    </div>
+
+    <!-- Detail table -->
+    <div class="mt-5">
+      <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Rincian Jadwal</p>
+      <div class="table-wrap rounded-xl border border-slate-200 overflow-hidden">
+        <table class="data-table w-full text-sm border-collapse" role="grid">
+          <thead>
+            <tr class="bg-indigo-600 text-white text-left text-xs font-semibold uppercase tracking-wide">
+              <th class="px-3 py-2.5 w-10">ID</th>
+              <th class="px-3 py-2.5">Fase / Aktivitas</th>
+              <th class="px-3 py-2.5 text-center w-24">Tipe</th>
+              <th class="px-3 py-2.5 whitespace-nowrap">Mulai (Est.)</th>
+              <th class="px-3 py-2.5 whitespace-nowrap">Selesai (Est.)</th>
+              <th class="px-3 py-2.5 text-center w-16">Durasi</th>
+              <th class="px-3 py-2.5">Asumsi Penjadwalan</th>
+            </tr>
+          </thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 // ── Render dokumen ──────────────────────────────────────────────────────────
 
+/**
+ * syncCharterMilestonesToGantt(doc, input, ganttData)
+ * S1.C-9, S1.C-10, S1.C-12: Replace charter milestone strings with the
+ * Gantt-derived schedule so Charter and Gantt show identical dates.
+ *
+ * Rules:
+ *  - Only applies when startDate is provided (calendar dates exist).
+ *  - Uses the Gantt task list (L1 phases only, excluding the buffer row).
+ *  - Preserves the existing milestone string format:
+ *      "4 Januari 2027: Penutupan Proyek selesai"
+ *  - If Gantt has no tasks (empty WBS), milestone strings are left unchanged.
+ *  - Does NOT invent calendar dates when startDate is absent (S1.C-13).
+ */
+function syncCharterMilestonesToGantt(doc, ganttData) {
+  if (!ganttData || !ganttData.hasCalendarDates) return; // no calendar, leave as-is
+  if (!ganttData.tasks || ganttData.tasks.length === 0) return;
+  if (!doc.charter) return;
+
+  const fmt = (d) =>
+    d ? d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : null;
+
+  // Work tasks only — exclude the synthetic buffer row (isBuffer === true)
+  const workTasks = ganttData.tasks.filter((t) => !t.isBuffer);
+
+  if (workTasks.length === 0) return;
+
+  // Map phase name → Gantt endDate
+  const milestones = workTasks.map((t) => {
+    const dateStr = t.endDate ? fmt(t.endDate) : null;
+    return dateStr ? `${dateStr}: ${t.name} selesai` : null;
+  }).filter(Boolean);
+
+  if (milestones.length > 0) {
+    doc.charter.milestones = milestones;
+  }
+}
+
 function renderDocument(doc, input) {
+  // S1.E-22: Guard against malformed AI data reaching critical paths
+  if (!doc.charter)       doc.charter       = {};
+  if (!Array.isArray(doc.wbs))           doc.wbs           = [];
+  if (!Array.isArray(doc.risk_register)) doc.risk_register = [];
+  if (!Array.isArray(doc.cost_estimate)) doc.cost_estimate = [];
+  if (!doc.cost_summary)  doc.cost_summary  = {};
+  if (!Array.isArray(doc.assumptions))   doc.assumptions   = [];
+
+  // S1.C-9/10/11/12: Compute Gantt schedule FIRST (single authoritative schedule).
+  // Then sync Charter milestone dates FROM the Gantt before rendering Charter.
+  const ganttData = buildGanttSchedule(doc.wbs, input);
+  doc._gantt = ganttData;
+
+  // S1.C-9/12/13: Synchronise Charter milestone dates to match Gantt dates.
+  // This is a no-op when startDate is absent (no calendar dates to sync).
+  syncCharterMilestonesToGantt(doc, ganttData);
+
   renderCharter(doc.charter, input);
   renderWBS(doc.wbs);
   renderRiskRegister(doc.risk_register);
   renderCostEstimate(doc.cost_estimate, doc.cost_summary);
   renderAssumptions(doc.assumptions);
+
+  // Render Gantt using the already-computed ganttData (S1.C-11: no re-computation)
+  renderGantt(ganttData, input);
 
   // Governance
   const governance = runGovernanceReview(doc, input);
@@ -990,8 +1949,16 @@ function renderDocument(doc, input) {
   renderGovernance(governance);
 
   // Tampilkan semua section
-  ["section-charter", "section-wbs", "section-risk", "section-cost", "section-assumptions", "section-governance"].forEach(showSection);
+  ["section-charter", "section-wbs", "section-risk", "section-cost", "section-assumptions", "section-gantt", "section-governance"].forEach(showSection);
   showSection("export-bar");
+
+  // S1.D-15/19: Show initial budget status after first render
+  const cs = doc.cost_summary;
+  const grandTotal = cs?.grand_total ?? 0;
+  // Remove stale budget-status from previous doc
+  const oldStatus = $("budget-status");
+  if (oldStatus) oldStatus.remove();
+  renderBudgetStatus(grandTotal, input?.budgetRange || "");
 }
 
 function renderCharter(charter, input) {
@@ -1250,6 +2217,7 @@ function renderCostEstimate(costs, summary) {
  * onCostEdit(e)
  * Handles edits to hours, rate, or non-labor inputs.
  * Recalculates: subtotal (labor) = hours × rate; row_total = subtotal + non_labor.
+ * S1.A-4: Sets costEdited = true so re-generation triggers a confirmation.
  */
 function onCostEdit(e) {
   const idx = parseInt(e.target.dataset.idx, 10);
@@ -1273,7 +2241,167 @@ function onCostEdit(e) {
 
   const rowTotalCell = $(`cost-sub-${idx}`);
   if (rowTotalCell) rowTotalCell.textContent = `Rp ${rowTotal.toLocaleString("id-ID")}`;
+
+  // S1.A-4: Mark cost table as edited.
+  costEdited = true;
+
   updateCostSummary();
+}
+
+// ── Budget health helpers ────────────────────────────────────────────────────
+
+/**
+ * parseBudgetIDR(text)
+ * S1.D-16: Parse common Indonesian currency strings into a numeric IDR value.
+ *
+ * Supported patterns:
+ *  - Plain numbers:                        100000000
+ *  - Dot-separated thousands:              100.000.000
+ *  - "juta" suffix (+ optional Rp):        100 juta  /  Rp 100 juta  /  Rp100juta
+ *  - "miliar" / "milyar" suffix:           1 miliar  /  1.5 miliar
+ *  - Full Rp notation:                     Rp100.000.000  /  Rp 80.000.000
+ *  - Ranges (returns upper bound):         Rp80–100 juta  /  80-100 juta
+ *    (callers must pass the returned {isRange, upperBound} through to the UI)
+ *
+ * @param {string} text  Raw budget string from the form.
+ * @returns {{ value: number|null, isRange: boolean, upperBound: number|null }}
+ *   value — single parsed value (or upper bound when isRange=true); null if unparseable.
+ *   isRange — true when the input contained a range expression.
+ *   upperBound — the upper bound of a range; same as value for non-range inputs.
+ */
+function parseBudgetIDR(text) {
+  if (!text || typeof text !== "string") return { value: null, isRange: false, upperBound: null };
+
+  const t = text.trim().toLowerCase()
+    .replace(/\s+/g, " ")      // collapse whitespace
+    .replace(/rp\s*/g, "")     // strip currency prefix
+    .replace(/,/g, ".");       // normalise decimal/thousands separator
+
+  // Detect range pattern: two numbers separated by –, -, ~, or s/d
+  // e.g. "80–100 juta" → [80, 100] + "juta"
+  const rangeMatch = t.match(
+    /^([\d.]+)\s*(?:–|-|~|s\/d)\s*([\d.]+)(?:\s*(juta|miliar|milyar|ribu|rb|m|jt))?/
+  );
+  if (rangeMatch) {
+    const parseNum = (n, unit) => {
+      const base = parseFloat(n.replace(/\.(?=.*\.)/g, ""));  // strip non-final dots
+      return base * multiplierFromUnit(unit || "");
+    };
+    const lo = parseNum(rangeMatch[1], rangeMatch[3]);
+    const hi = parseNum(rangeMatch[2], rangeMatch[3]);
+    if (!isNaN(lo) && !isNaN(hi)) {
+      return { value: hi, isRange: true, upperBound: hi };
+    }
+  }
+
+  // Single value with optional unit suffix
+  const singleMatch = t.match(/^([\d.]+)\s*(juta|miliar|milyar|ribu|rb|m|jt)?$/);
+  if (singleMatch) {
+    const raw  = parseFloat(singleMatch[1].replace(/\.(?=.*\.)/g, ""));
+    const unit = singleMatch[2] || "";
+    const val  = raw * multiplierFromUnit(unit);
+    if (!isNaN(val) && val > 0) return { value: val, isRange: false, upperBound: val };
+  }
+
+  return { value: null, isRange: false, upperBound: null };
+}
+
+/** Maps Indonesian numeric unit names to their IDR multiplier. */
+function multiplierFromUnit(unit) {
+  switch (unit.toLowerCase()) {
+    case "juta": case "jt": case "m":  return 1_000_000;
+    case "miliar": case "milyar":      return 1_000_000_000;
+    case "ribu": case "rb":            return 1_000;
+    default:                           return 1;
+  }
+}
+
+/**
+ * renderBudgetStatus(grandTotal, budgetText)
+ * S1.D-15–20: Compare current grand total (incl. contingency) to the parsed
+ * project budget and update the #budget-status element.
+ *
+ * Creates the element dynamically if not already present in the cost section.
+ */
+function renderBudgetStatus(grandTotal, budgetText) {
+  // Ensure the status element exists
+  let statusEl = $("budget-status");
+  if (!statusEl) {
+    const costSection = $("section-cost");
+    if (!costSection) return;
+    // Insert before the footnote paragraph inside the cost section
+    const footnote = costSection.querySelector("p.text-xs.text-slate-400.mt-2");
+    statusEl = document.createElement("div");
+    statusEl.id = "budget-status";
+    statusEl.className = "mt-3";
+    if (footnote) {
+      footnote.parentNode.insertBefore(statusEl, footnote);
+    } else {
+      costSection.querySelector(".px-6.py-5").appendChild(statusEl);
+    }
+  }
+
+  const parsed = parseBudgetIDR(budgetText || "");
+
+  if (parsed.value === null) {
+    // S1.D-18: unparseable budget
+    statusEl.innerHTML = `
+      <div class="flex items-center gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
+        <svg class="w-4 h-4 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span><strong>Budget tidak dapat dibandingkan</strong> — format anggaran tidak dikenali (<em>${escHtml(budgetText)}</em>).</span>
+      </div>`;
+    return;
+  }
+
+  const budget = parsed.value; // S1.D-17: use upper bound for ranges
+  const diff   = grandTotal - budget;
+  const pct    = budget > 0 ? Math.round((Math.abs(diff) / budget) * 100) : 0;
+
+  let html;
+  if (diff > 0) {
+    // S1.D-20: over budget
+    html = `
+      <div class="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+        <svg class="w-4 h-4 shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+        <span>
+          <strong>Melebihi anggaran</strong> sebesar <strong>Rp ${diff.toLocaleString("id-ID")}</strong> (+${pct}%).
+          ${parsed.isRange ? `<em class="text-red-500">(Asumsi: dibandingkan batas atas anggaran Rp ${budget.toLocaleString("id-ID")})</em>` : ""}
+        </span>
+      </div>`;
+  } else if (Math.abs(diff) / Math.max(budget, 1) <= 0.05) {
+    // S1.D-20: within budget (within ±5%)
+    html = `
+      <div class="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+        <svg class="w-4 h-4 shrink-0 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>
+        </svg>
+        <span>
+          <strong>Dalam batas anggaran</strong> (selisih ${pct}%).
+          ${parsed.isRange ? `<em class="text-amber-600">(Asumsi: dibandingkan batas atas anggaran Rp ${budget.toLocaleString("id-ID")})</em>` : ""}
+        </span>
+      </div>`;
+  } else {
+    // S1.D-20: under budget
+    html = `
+      <div class="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+        <svg class="w-4 h-4 shrink-0 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span>
+          <strong>Di bawah anggaran</strong> — estimasi lebih rendah Rp ${Math.abs(diff).toLocaleString("id-ID")} (${pct}%) dari anggaran.
+          ${parsed.isRange ? `<em class="text-emerald-600">(Asumsi: dibandingkan batas atas anggaran Rp ${budget.toLocaleString("id-ID")})</em>` : ""}
+        </span>
+      </div>`;
+  }
+  statusEl.innerHTML = html;
 }
 
 /**
@@ -1283,6 +2411,7 @@ function onCostEdit(e) {
  *   contingency_reserve  = cost_subtotal × contingency_pct / 100
  *   grand_total          = cost_subtotal + contingency_reserve
  *
+ * S1.D-19: Also immediately updates budget status after any cost change.
  * Also keeps #cost-total updated for any legacy references (it now shows grand_total).
  */
 function updateCostSummary() {
@@ -1307,13 +2436,16 @@ function updateCostSummary() {
   currentDoc.cost_summary.grand_total           = grandTotal;
 
   // Update display cells
-  const subtotalEl  = $("cost-subtotal-display");
-  const reserveEl   = $("cost-reserve-display");
+  const subtotalEl   = $("cost-subtotal-display");
+  const reserveEl    = $("cost-reserve-display");
   const grandTotalEl = $("cost-total"); // existing ID — now shows grand total
 
   if (subtotalEl)   subtotalEl.textContent  = `Rp ${costSubtotal.toLocaleString("id-ID")}`;
   if (reserveEl)    reserveEl.textContent   = `Rp ${reserve.toLocaleString("id-ID")}`;
   if (grandTotalEl) grandTotalEl.textContent = `Rp ${grandTotal.toLocaleString("id-ID")}`;
+
+  // S1.D-19: Update budget health status immediately
+  renderBudgetStatus(grandTotal, currentInput?.budgetRange || "");
 }
 
 // Keep a thin backward-compatible alias so any future caller of the old name still works
@@ -1485,15 +2617,28 @@ function escHtml(str) {
 /**
  * getFormData()
  * Baca dan validasi data dari form.
+ * S1.A-3: Enforces duration 1–520 and teamSize 1–500 as finite positive
+ *          integers.  Decimals, zero, and out-of-range values are rejected
+ *          with explicit error messages.
  * @returns {object|null} Data form atau null bila tidak valid
  */
 function getFormData() {
+  // S1.A-3: Read raw strings so we can detect non-integer input before parsing.
+  const durationRaw  = ($("duration")?.value  || "").trim();
+  const teamSizeRaw  = ($("team-size")?.value || "").trim();
+
+  // Reject values that are not whole-number strings (e.g. "3.5", "1.0e2", "abc").
+  const isWholeNumber = (s) => /^\d+$/.test(s);
+
+  const durationParsed  = isWholeNumber(durationRaw)  ? parseInt(durationRaw,  10) : NaN;
+  const teamSizeParsed  = isWholeNumber(teamSizeRaw)   ? parseInt(teamSizeRaw,  10) : NaN;
+
   const data = {
     // required fields (unchanged)
     projectName:  ($("project-name")?.value || "").trim(),
     objective:    ($("objective")?.value || "").trim(),
-    duration:     parseInt($("duration")?.value || "0", 10),
-    teamSize:     parseInt($("team-size")?.value || "0", 10),
+    duration:     durationParsed,
+    teamSize:     teamSizeParsed,
     category:     $("category")?.value || "",
     budgetRange:  ($("budget-range")?.value || "").trim(),
     // optional Phase 2A fields — silently empty when not filled
@@ -1508,8 +2653,25 @@ function getFormData() {
   const errors = [];
   if (!data.projectName) errors.push("Nama proyek wajib diisi.");
   if (!data.objective) errors.push("Tujuan proyek wajib diisi.");
-  if (isNaN(data.duration) || data.duration < 1) errors.push("Durasi harus ≥ 1 minggu.");
-  if (isNaN(data.teamSize) || data.teamSize < 1) errors.push("Ukuran tim harus ≥ 1 orang.");
+
+  // S1.A-3: duration validation — must be integer 1–520
+  if (!isWholeNumber(durationRaw)) {
+    errors.push("Durasi harus bilangan bulat (mis. 14). Nilai desimal atau teks tidak diterima.");
+  } else if (durationParsed < 1) {
+    errors.push("Durasi harus ≥ 1 minggu.");
+  } else if (durationParsed > 520) {
+    errors.push("Durasi tidak boleh melebihi 520 minggu (10 tahun).");
+  }
+
+  // S1.A-3: teamSize validation — must be integer 1–500
+  if (!isWholeNumber(teamSizeRaw)) {
+    errors.push("Ukuran tim harus bilangan bulat (mis. 5). Nilai desimal atau teks tidak diterima.");
+  } else if (teamSizeParsed < 1) {
+    errors.push("Ukuran tim harus ≥ 1 orang.");
+  } else if (teamSizeParsed > 500) {
+    errors.push("Ukuran tim tidak boleh melebihi 500 orang.");
+  }
+
   if (!data.category) errors.push("Pilih kategori proyek.");
   if (!data.budgetRange) errors.push("Kisaran anggaran wajib diisi.");
 
@@ -1542,8 +2704,29 @@ function clearFormErrors() {
   }
 }
 
+/**
+ * confirmCostEditOverwrite(modeName)
+ * S1.A-4: If the user has edited cost values, ask for confirmation before
+ * re-generation would overwrite them.  Returns true to proceed, false to cancel.
+ *
+ * Uses window.confirm() which is synchronous and universally available.
+ * No DOM mutation on cancel — the existing document is preserved as-is.
+ *
+ * @param {string} modeName  e.g. "Template" or "AI"
+ * @returns {boolean}
+ */
+function confirmCostEditOverwrite(modeName) {
+  if (!costEdited) return true;
+  return window.confirm(
+    `Anda telah mengedit Estimasi Biaya.\n\nGenerate ulang dengan ${modeName} akan mengganti semua nilai yang telah diedit.\n\nLanjutkan dan timpa editan?`
+  );
+}
+
 /** Klik tombol "Generate Template" */
 async function onGenerateTemplate() {
+  // S1.A-4: Guard cost edits before re-generation
+  if (!confirmCostEditOverwrite("Template")) return;
+
   const input = getFormData();
   if (!input) return;
 
@@ -1554,17 +2737,161 @@ async function onGenerateTemplate() {
 
   const doc = generateTemplate(input);
   currentDoc = doc;
+  // S1.A-4: Reset edit tracking after successful re-generation
+  costEdited = false;
   renderDocument(doc, input);
 
   $("output-section")?.scrollIntoView({ behavior: "smooth" });
 }
 
+// ── AI output normalisation helpers ─────────────────────────────────────────
+
+/**
+ * normaliseAICharter(charter, input)
+ * S1.A-1: Compute finish_date from startDate + duration*7 if AI omitted it.
+ * S1.A-2: Guard null/missing deliverables and milestones arrays.
+ * S1.B-6: Backfill all Phase 2A identity fields from user input.
+ */
+function normaliseAICharter(charter, input) {
+  if (!charter || typeof charter !== "object") charter = {};
+
+  charter.project_title   = charter.project_title   || input.projectName;
+  charter.budget_info     = charter.budget_info     || input.budgetRange;
+  charter.pm_name         = charter.pm_name         || input.pmName        || "";
+  charter.methodology     = charter.methodology     || input.methodology   || "";
+  charter.start_date      = charter.start_date      || input.startDate     || "";
+  charter.project_context = charter.project_context || input.projectContext || "";
+
+  // S1.A-1: Compute finish_date when AI did not return it — identical formula
+  // to Template Mode: start + duration * 7 days.
+  if (!charter.finish_date || charter.finish_date === "") {
+    if (input.startDate) {
+      const start  = new Date(input.startDate);
+      const finish = new Date(start);
+      finish.setDate(finish.getDate() + (Number(input.duration) || 0) * 7);
+      charter.finish_date = finish.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+    } else {
+      charter.finish_date = "";
+    }
+  }
+
+  // S1.A-2: Guard missing arrays to prevent null-reference crashes in
+  // renderCharter() and computeScore()
+  if (!Array.isArray(charter.deliverables)) charter.deliverables = [];
+  if (!Array.isArray(charter.milestones))   charter.milestones   = [];
+  if (!Array.isArray(charter.in_scope))     charter.in_scope     = [];
+  if (!Array.isArray(charter.out_of_scope)) charter.out_of_scope = [];
+  if (!Array.isArray(charter.stakeholders)) charter.stakeholders = [];
+
+  if (!charter.success_criteria) {
+    const lines = (input.successCriteria || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    charter.success_criteria = lines;
+  }
+
+  // Ensure objective is always a string
+  if (typeof charter.objective !== "string") {
+    charter.objective = input.objective || "";
+  }
+
+  return charter;
+}
+
+/**
+ * normaliseAIWBS(wbs)
+ * S1.B-7: Validate minimum WBS fields required by buildGanttSchedule.
+ * Drops rows that don't have at minimum a valid level (1/2/3) and a name.
+ * Returns a normalised array, or an empty array with a flag if unusable.
+ *
+ * @param {any} wbs  The wbs field from AI output.
+ * @returns {{ wbs: object[], usable: boolean, reason: string }}
+ */
+function normaliseAIWBS(wbs) {
+  if (!Array.isArray(wbs) || wbs.length === 0) {
+    return { wbs: [], usable: false, reason: "AI tidak mengembalikan WBS." };
+  }
+
+  const cleaned = wbs
+    .filter((row) => {
+      if (typeof row !== "object" || row === null) return false;
+      const lvl = Number(row.level);
+      if (![1, 2, 3].includes(lvl)) return false;
+      if (!row.name || typeof row.name !== "string" || !row.name.trim()) return false;
+      return true;
+    })
+    .map((row) => ({
+      id:                   String(row.id  ?? ""),
+      name:                 String(row.name).trim(),
+      level:                Number(row.level),
+      deliverable:          String(row.deliverable          ?? "").trim(),
+      completion_criteria:  String(row.completion_criteria  ?? "").trim(),
+    }));
+
+  // Must have at least one L1 phase for Gantt to work
+  const hasL1 = cleaned.some((r) => r.level === 1);
+  if (!hasL1) {
+    return {
+      wbs: cleaned,
+      usable: false,
+      reason: "WBS dari AI tidak memiliki fase Level 1. Gantt tidak dapat ditampilkan dengan data ini.",
+    };
+  }
+
+  return { wbs: cleaned, usable: true, reason: "" };
+}
+
+/**
+ * showWBSFallbackNotice(reason)
+ * S1.B-7: Show a human-readable notice inside the Gantt section when
+ * AI WBS is unusable.  This prevents silent corruption or crashes.
+ */
+function showWBSFallbackNotice(reason) {
+  const ganttContent = $("gantt-content");
+  if (ganttContent) {
+    ganttContent.innerHTML = `
+      <div class="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+        <svg class="w-5 h-5 shrink-0 mt-0.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+        </svg>
+        <div>
+          <p class="font-semibold">Gantt tidak dapat ditampilkan</p>
+          <p class="text-xs mt-0.5">${escHtml(reason)}</p>
+        </div>
+      </div>`;
+  }
+}
+
 /** Klik tombol "Generate dengan AI" */
 async function onGenerateAI() {
+  // S1.A-4: Guard cost edits before re-generation
+  if (!confirmCostEditOverwrite("AI")) return;
+
   const input = getFormData();
   if (!input) return;
 
   currentInput = input;
+
+  // S1.B-5: Mark existing output as stale while loading.
+  // Dim old sections so they cannot be mistaken for the new result.
+  const outputSection = $("output-section");
+  let loadingBanner = null;
+  if (outputSection && currentDoc) {
+    loadingBanner = document.createElement("div");
+    loadingBanner.id = "ai-loading-banner";
+    loadingBanner.className = "flex items-center gap-3 p-4 mb-4 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800";
+    loadingBanner.innerHTML = `
+      <svg class="w-5 h-5 animate-spin shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+      </svg>
+      <span>Mengirim ke AI — dokumen lama sedang disembunyikan sementara…</span>`;
+    outputSection.prepend(loadingBanner);
+    ["section-charter","section-wbs","section-risk","section-cost","section-assumptions","section-gantt","section-governance"].forEach(id => {
+      const s = $(id);
+      if (s) s.style.opacity = "0.3";
+    });
+  }
+
   setLoading(true);
   clearFallbackNotice();
 
@@ -1587,41 +2914,36 @@ async function onGenerateAI() {
       throw new Error(result.reason || "AI tidak tersedia");
     }
 
-    // Normalize AI output: backfill non_labor and row_total if the LLM did not return them.
-    // The AI schema only requires { category, hours, rate, subtotal }; we add the new fields
-    // as frontend-only state without changing the server contract.
+    // ── Normalize AI output ──────────────────────────────────────────────
     const aiData = result.data;
 
-    // Backfill Phase 2A charter identity fields from input when AI did not return them.
-    // This ensures renderCharter() always has project_title, budget_info, pm_name, etc.
-    if (aiData.charter) {
-      aiData.charter.project_title  = aiData.charter.project_title  || input.projectName;
-      aiData.charter.budget_info    = aiData.charter.budget_info    || input.budgetRange;
-      aiData.charter.pm_name        = aiData.charter.pm_name        || input.pmName        || "";
-      aiData.charter.methodology    = aiData.charter.methodology    || input.methodology   || "";
-      aiData.charter.start_date     = aiData.charter.start_date     || input.startDate     || "";
-      aiData.charter.finish_date    = aiData.charter.finish_date    || "";
-      aiData.charter.project_context = aiData.charter.project_context || input.projectContext || "";
-      if (!aiData.charter.success_criteria) {
-        const lines = (input.successCriteria || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-        aiData.charter.success_criteria = lines;
+    // S1.A-1 + S1.A-2 + S1.B-6: Normalise charter
+    aiData.charter = normaliseAICharter(aiData.charter || {}, input);
+
+    // S1.B-7: Normalise and validate WBS
+    let wbsUnusableReason = "";
+    {
+      const wbsResult = normaliseAIWBS(aiData.wbs);
+      aiData.wbs = wbsResult.wbs;
+      if (!wbsResult.usable) {
+        wbsUnusableReason = wbsResult.reason;
       }
     }
+
+    // Normalize cost_estimate: backfill non_labor and row_total
     if (Array.isArray(aiData.cost_estimate)) {
       aiData.cost_estimate = aiData.cost_estimate.map((c) => {
         const labor    = Math.max(0, Number(c.subtotal) || 0);
         const nonLabor = Math.max(0, Number(c.non_labor) || 0);
-        return {
-          ...c,
-          subtotal:  labor,
-          non_labor: nonLabor,
-          row_total: labor + nonLabor,
-        };
+        return { ...c, subtotal: labor, non_labor: nonLabor, row_total: labor + nonLabor };
       });
+    } else {
+      aiData.cost_estimate = [];
     }
+
     // Build a fresh cost_summary so the tfoot renders correctly
     if (!aiData.cost_summary) {
-      const costSubtotal = aiData.cost_estimate.reduce((s, c) => s + c.row_total, 0);
+      const costSubtotal = (aiData.cost_estimate || []).reduce((s, c) => s + (c.row_total || 0), 0);
       const pct = 10;
       aiData.cost_summary = {
         contingency_pct:     pct,
@@ -1631,20 +2953,47 @@ async function onGenerateAI() {
       };
     }
 
+    // Ensure risk_register and assumptions are arrays (S1.E-22)
+    if (!Array.isArray(aiData.risk_register))  aiData.risk_register  = [];
+    if (!Array.isArray(aiData.assumptions))    aiData.assumptions    = [];
+
     currentMode = "ai";
-    currentDoc = aiData;
+    currentDoc  = aiData;
+    // S1.A-4: Reset edit tracking after successful re-generation
+    costEdited = false;
+    // S1.B-6: Explicit badge — this is real Gemini output, not a fallback
     renderBadge("ai");
     renderDocument(aiData, input);
+
+    // S1.B-7: Show explanation in Gantt area if WBS was unusable
+    if (wbsUnusableReason) {
+      showWBSFallbackNotice(wbsUnusableReason);
+    }
+
   } catch (err) {
-    // Fallback ke template mode
+    // S1.B-5: Restore old sections on failure so user can still read previous doc
+    ["section-charter","section-wbs","section-risk","section-cost","section-assumptions","section-gantt","section-governance"].forEach(id => {
+      const s = $(id);
+      if (s) s.style.opacity = "";
+    });
+
+    // S1.B-6: Explicit fallback labeling — not presented as successful AI output
     console.warn("[AI Fallback]", err.message);
     renderFallbackNotice(err.message);
     currentMode = "template";
     renderBadge("template");
     const doc = generateTemplate(input);
     currentDoc = doc;
+    // S1.A-4: Reset edit tracking on fallback too (new doc generated)
+    costEdited = false;
     renderDocument(doc, input);
   } finally {
+    // S1.B-5: Always remove the loading banner and restore opacity
+    if (loadingBanner) loadingBanner.remove();
+    ["section-charter","section-wbs","section-risk","section-cost","section-assumptions","section-gantt","section-governance"].forEach(id => {
+      const s = $(id);
+      if (s) s.style.opacity = "";
+    });
     setLoading(false);
     $("output-section")?.scrollIntoView({ behavior: "smooth" });
   }
@@ -1666,7 +3015,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-print")?.addEventListener("click", onPrint);
 
   // Contingency % input — fires updateCostSummary whenever the user changes the %
-  $("contingency-pct-input")?.addEventListener("input", updateCostSummary);
+  // S1.A-4: Also marks the cost table as edited when contingency is changed.
+  $("contingency-pct-input")?.addEventListener("input", () => {
+    costEdited = true;
+    updateCostSummary();
+  });
 
   // Tombol ekspor CSV
   $("export-charter")?.addEventListener("click", () => exportCSV("charter"));

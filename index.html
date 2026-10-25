@@ -68,6 +68,10 @@
     .badge-template { background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe; }
     .badge-ai       { background:#d1fae5; color:#065f46; border:1px solid #a7f3d0; }
 
+    /* ── Gantt chart ───────────────────────────────────────────────────── */
+    .gantt-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .gantt-scroll-wrap svg { display: block; }
+
     /* ── Print ─────────────────────────────────────────────────────────── */
     @media print {
       .no-print { display: none !important; }
@@ -76,6 +80,10 @@
       #app-header { background: #0f2044 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .section-reveal { animation: none; }
       #output-section { display: block !important; }
+      /* Gantt: force full SVG width in print, prevent clipping */
+      .gantt-scroll-wrap { overflow: visible !important; }
+      .gantt-scroll-wrap svg { width: 100% !important; height: auto !important; }
+      #section-gantt { page-break-before: always; }
     }
 
     /* ── Responsive sidebar layout ─────────────────────────────────────── */
@@ -178,6 +186,13 @@
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-assumptions">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition">5</span>
             Asumsi
+          </a>
+        </li>
+        <li>
+          <a href="#section-gantt"
+            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-gantt">
+            <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-indigo-600 group-hover:text-white transition">6</span>
+            Gantt Chart
           </a>
         </li>
         <li>
@@ -739,6 +754,21 @@
         <div id="assumptions-content" class="px-6 py-5"></div>
       </section>
 
+      <!-- ── 6 · GANTT CHART ──────────────────────────────────────────────── -->
+      <section id="section-gantt"
+        class="hidden section-reveal card-accent accent-navy bg-white rounded-2xl shadow-sm border border-slate-200"
+        aria-labelledby="gantt-heading">
+        <div class="px-6 pt-6 pb-4 border-b border-slate-100">
+          <h2 id="gantt-heading" class="flex items-center gap-2.5 text-base font-bold text-slate-800">
+            <span class="flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-bold shrink-0">6</span>
+            Gantt Chart
+            <span class="text-sm font-normal text-slate-400">(Jadwal Proyek Estimasi)</span>
+          </h2>
+          <p class="text-xs text-slate-500 mt-1">Jadwal diturunkan dari fase WBS. Seluruh tanggal adalah estimasi sistem — bukan komitmen aktual.</p>
+        </div>
+        <div id="gantt-content" class="px-6 py-5"></div>
+      </section>
+
       <!-- ── G · GOVERNANCE REVIEW ─────────────────────────────────────── -->
       <section id="section-governance"
         class="hidden section-reveal card-accent accent-purple bg-white rounded-2xl shadow-sm border border-slate-200"
@@ -844,6 +874,7 @@
       'section-risk':       'nav-risk',
       'section-cost':       'nav-cost',
       'section-assumptions':'nav-assumptions',
+      'section-gantt':      'nav-gantt',
       'section-governance': 'nav-governance',
     };
     const activeClass = 'bg-blue-50 text-blue-700 font-semibold';
