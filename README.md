@@ -1,143 +1,106 @@
 # Asisten Tata Kelola Proyek TI
 
-Alat bantu web untuk mahasiswa dan tim proyek TI kecil di Indonesia dalam menyusun dokumen perencanaan proyek (Project Charter, WBS, Risk Register, Estimasi Biaya) dan meninjaunya terhadap framework COBIT 2019.
+A vanilla JavaScript and Node.js application for planning and reviewing IT projects. It generates a Project Charter, deliverable-driven Work Breakdown Structure (WBS), detailed WBS-based Gantt schedule, contextual Risk Register, editable Cost Estimation, assumptions, and an indicative COBIT 2019 governance review.
 
----
+## Features
 
-## Fitur Utama
+- Template Mode produces deterministic project documents locally in the browser and works with `file://`.
+- Optional Gemini AI Mode is accessed through the Express backend; failed or unavailable AI generation is labeled and falls back to Template Mode.
+- Workspace modules include Overview, Project Charter, WBS, Gantt Chart, Risk Register, Cost Estimation, Assumptions, and COBIT 2019 Review.
+- Gantt schedules show WBS hierarchy, dependencies, calendar dates (or relative weeks), and an explicit schedule buffer when available.
+- Cost rows and contingency are editable. CSV exports use the current document values; Print All Documents includes generated modules.
+- The application uses ordered classic scripts and has no frontend build step.
 
-| Fitur | Template Mode | AI Mode |
-|---|:---:|:---:|
-| Project Charter | ✅ | ✅ |
-| WBS 3 Level | ✅ | ✅ |
-| Risk Register (≥6 risiko) | ✅ | ✅ |
-| Estimasi Biaya (editable) | ✅ | ✅ |
-| Tinjauan COBIT 2019 | ✅ | ✅ |
-| KPI & Skor Kesesuaian Indikatif | ✅ | ✅ |
-| Ekspor CSV per seksi | ✅ | ✅ |
-| Cetak / Simpan PDF | ✅ | ✅ |
-| Bekerja tanpa internet | ✅ | ❌ |
+## Requirements and setup
 
----
+- Node.js 18 or newer.
+- npm.
 
-## Cara Menjalankan
+Install dependencies and start the Express application:
 
-### Mode Template (tanpa API, tanpa internet)
-
-Mode ini menggunakan template bawaan per kategori proyek dan **tidak memerlukan server, API key, atau koneksi internet**.
-
-1. Pastikan file berikut ada di direktori yang sama:
-   - `index.html`
-   - `app.js`
-   - `cobit-data.js`
-
-2. Buka `index.html` dengan ekstensi **Live Server** di VS Code, atau server statis apa pun:
-   ```
-   # Contoh dengan Python
-   python -m http.server 8080
-   # lalu buka http://localhost:8080
-   ```
-
-3. Isi form → klik **Generate Template** → dokumen langsung ditampilkan.
-
-> ⚠️ Membuka `index.html` langsung via `file://` sudah cukup untuk Template Mode karena tidak ada fetch API.
-
----
-
-### Mode AI (dengan Google Gemini)
-
-Mode ini mengirimkan data form ke backend Express yang memanggil Google Gemini API.
-
-#### Prasyarat
-
-- Node.js ≥ 18
-- API key Google Gemini (dapatkan di <https://aistudio.google.com/app/apikey>)
-
-#### Langkah
-
-1. **Install dependensi:**
-   ```bash
-   npm install
-   ```
-
-2. **Buat file `.env`** (salin dari `.env.example`):
-   ```bash
-   cp .env.example .env
-   ```
-   Kemudian edit `.env`:
-   ```
-   GEMINI_API_KEY=API_KEY_KAMU_DI_SINI
-   GEMINI_MODEL=gemini-1.5-flash
-   PORT=3000
-   ```
-
-3. **Jalankan server:**
-   ```bash
-   npm start
-   ```
-   Atau, untuk development dengan auto-reload (Node.js ≥ 18):
-   ```bash
-   npm run dev
-   ```
-
-4. Buka browser di **<http://localhost:3000>**
-
-5. Isi form → klik **Generate dengan AI**.
-
-> Jika AI gagal (quota habis, timeout, JSON tidak valid, API key belum diset), aplikasi otomatis beralih ke **Template Mode** dan menampilkan notifikasi kuning di atas form.
-
----
-
-## Mengisi Data COBIT 2019
-
-File `cobit-data.js` disertakan sebagai **scaffold kosong** karena data COBIT 2019 dilindungi hak cipta ISACA.
-
-Untuk mengaktifkan fitur pemetaan COBIT sepenuhnya:
-
-1. Buka `cobit-data.js`
-2. Isi array `COBIT_OBJECTIVES` dengan objective resmi dari publikasi ISACA, contoh format:
-   ```js
-   { code: "EDM01", name: "Ensured Governance Framework Setting and Maintenance",
-     goal: "Analyse and articulate the requirements for the governance of enterprise IT." }
-   ```
-3. Simpan file — tidak perlu restart server (file dimuat oleh browser sebagai skrip statis, dan oleh server saat boot).
-
-> Kode COBIT yang tidak terdaftar di `cobit-data.js` akan **ditandai merah** di UI jika dikembalikan oleh LLM.
-
----
-
-## Struktur File
-
+```sh
+npm install
+npm start
 ```
+
+Open <http://localhost:3000>. Run the automated tests with:
+
+```sh
+npm test
+```
+
+To use Template Mode without Node.js, open `index.html` directly in a browser (`file://`) or serve the project with a static HTTP server. Template Mode does not call the backend. Its layout uses Tailwind CSS and Inter from CDNs, so appearance may fall back if offline. AI Mode requires the Express API.
+
+## Optional Gemini configuration
+
+AI Mode is optional. To enable it, create a local `.env` file from `.env.example`, then set:
+
+```dotenv
+GEMINI_API_KEY=your_key
+GEMINI_MODEL=your_model
+PORT=3000
+```
+
+Keep `.env` local, do not commit it, and never put the API key in frontend code. The server loads environment configuration at startup and does not return credentials in API responses. If configuration is missing or the provider call fails, the application reports the Template fallback rather than treating it as an AI result.
+
+Live Gemini connectivity has not been tested as part of this project validation.
+
+## Application layout
+
+```text
 .
-├── index.html        # Antarmuka pengguna (SPA, Tailwind CDN)
-├── app.js            # Logika frontend (template, AI, governance, export)
-├── cobit-data.js     # Scaffold data COBIT 2019 (TODO: isi manual)
-├── server.js         # Backend Express + callLLM (Google Gemini)
-├── package.json
-├── .env.example      # Template konfigurasi (tanpa nilai rahasia)
-├── .gitignore
-└── README.md
+├── app.js
+├── cobit-data.js
+├── css/
+│   ├── app.css
+│   └── gantt.css
+├── index.html
+├── js/
+│   ├── core/
+│   │   ├── project-store.js
+│   │   └── utils.js
+│   └── features/
+│       ├── assumptions-ui.js
+│       ├── ai-normalization.js
+│       ├── cobit.js
+│       ├── cost-ui.js
+│       ├── cost.js
+│       ├── document-renderers.js
+│       ├── export-ui.js
+│       ├── gantt-schedule.js
+│       ├── gantt-ui.js
+│       ├── governance-ui.js
+│       ├── risks.js
+│       ├── status-ui.js
+│       ├── template.js
+│       └── workspace-ui.js
+├── server/
+│   ├── gemini-service.js
+│   ├── generation.js
+│   └── public-assets.js
+├── server.js
+└── test/
+    ├── app-regression.test.js
+    ├── core-store.test.js
+    ├── helpers/
+    │   └── app-harness.js
+    └── server-validation.test.js
 ```
 
----
+The browser loads the feature files as ordered classic scripts. `js/core/project-store.js` is the canonical owner of project/document state. `app.js` bootstraps generation and coordinates features. The CommonJS backend keeps request validation, prompt/response handling, Gemini calls, and the public asset allowlist in small server modules. `cobit-data.js` supports both browser and CommonJS use.
 
-## Keamanan
+## Generated documents and limitations
 
-- API key **hanya** dibaca dari environment variable di server; tidak pernah dikirim ke frontend.
-- Backend melakukan validasi input sebelum memanggil LLM.
-- Semua output LLM di-render dengan `escHtml()` untuk mencegah XSS.
-- File `.env` dikecualikan dari git melalui `.gitignore`.
+- WBS items and Gantt dates are generated planning estimates, not an approved baseline. Gantt activity dates, dependencies, and buffer should be reviewed and approved by the project team.
+- Cost figures are estimates and should be validated against actual rates and procurement assumptions. Budget Health compares the calculated estimate to a parseable budget threshold; ambiguous budget text is not guessed.
+- COBIT mappings, explanations, KPIs, and scores are indicative planning aids only. They are not an audit, maturity assessment, or official compliance determination.
+- AI output can be incomplete or inaccurate and requires human review. No live Gemini API request is made by the automated test suite.
+- Browser print-to-PDF uses the browser's print dialog. CSV download behavior depends on browser permissions and settings.
+- The local COBIT objective data is loaded from `cobit-data.js`; use only appropriately licensed data when populating or redistributing it.
 
----
+## Security notes
 
-## Catatan Penting
-
-> **Skor Kesesuaian Indikatif** yang ditampilkan aplikasi ini **bukan** hasil audit, bukan penilaian maturitas, dan tidak mewakili posisi kepatuhan resmi terhadap COBIT 2019.
-> Gunakan sebagai panduan awal perencanaan saja.
-
----
-
-## Lisensi
-
-MIT
+- The Gemini key remains server-side and is not sent to the browser.
+- The API validates request types, sizes, required values, and project bounds before invoking the provider.
+- Static HTTP access is limited to the application entry point and explicitly approved frontend asset paths; backend modules, tests, references, dependencies, and environment files are not served.
+- User-facing renderers should escape untrusted text. CSV string values that begin like spreadsheet formulas are prefixed to reduce formula execution risk.

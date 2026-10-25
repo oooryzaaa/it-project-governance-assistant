@@ -108,7 +108,11 @@ function exportCSV(section) {
 
   const csvContent = rows
     .map((row) =>
-      row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+      row.map((cell) => {
+        let value = String(cell ?? "");
+        if (typeof cell === "string" && /^[\t\r\n ]*[=+\-@]/.test(cell)) value = `'${value}`;
+        return `"${value.replace(/"/g, '""')}"`;
+      }).join(",")
     )
     .join("\n");
 

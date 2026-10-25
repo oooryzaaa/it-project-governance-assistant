@@ -589,6 +589,7 @@ test("editable cost rows and contingency update canonical totals and budget stat
 
 test("CSV export serializes canonical data without requiring rendered output sections", async (t) => {
   const doc = toPlain(api.generateTemplate(kosPintarInput));
+  doc.wbs[0].name = '=HYPERLINK("https://example.invalid","open")';
   doc.cost_estimate[0] = {
     ...doc.cost_estimate[0],
     hours: 2,
@@ -629,6 +630,9 @@ test("CSV export serializes canonical data without requiring rendered output sec
         assert.match(csv, /"Total Estimasi Akhir","","","","","3000"/);
       }
       if (section === "charter") assert.match(csv, /"Nama Proyek","Kos Pintar"/);
+      if (section === "wbs") {
+        assert.match(csv, /"'=HYPERLINK\(""https:\/\/example\.invalid"",""open""\)"/);
+      }
       if (section === "gantt") {
         assert.match(csv, /"Finish Date \(exclusive\)"/);
         assert.match(csv, /"Parent WBS ID"/);

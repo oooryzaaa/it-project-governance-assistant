@@ -2,55 +2,13 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const vm = require("node:vm");
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createRequire } = require("node:module");
+const { buildPrompt, parseModelResponse, validateRequestBody, validateSchema } = require("../server/generation");
+const { createApp } = require("../server");
+const { isPublicAssetPath } = require("../server/public-assets");
 
-const root = path.resolve(__dirname, "..");
-const projectRequire = createRequire(path.join(root, "server.js"));
-
-function createServerHarness() {
-  const routes = new Map();
-  const app = {
-    use() {},
-    post(route, handler) {
-      routes.set(`POST ${route}`, handler);
-    },
-    get(route, handler) {
-      routes.set(`GET ${route}`, handler);
-    },
-    listen() {},
-  };
-  const express = () => app;
-  express.json = () => () => {};
-  express.static = () => () => {};
-
-  const context = vm.createContext({
-    console: { log() {}, error() {} },
-    process: { env: {} },
-    __dirname: root,
-    require(name) {
-      if (name === "dotenv") return { config() {} };
-      if (name === "express") return express;
-      if (name === "path") return projectRequire("node:path");
-      if (name === "@google/genai") return { GoogleGenAI: class {} };
-      if (name === "./cobit-data") return projectRequire("./cobit-data");
-      throw new Error(`Unexpected server test dependency: ${name}`);
-    },
-  });
-
-  const source = fs.readFileSync(path.join(root, "server.js"), "utf8");
-  const testAccess = `
-    globalThis.__serverTest = { validateRequestBody, validateSchema, buildPrompt };
-  `;
-  vm.runInContext(`${source}\n${testAccess}`, context, { filename: "server-test-context.js" });
-
-  return { api: context.__serverTest, routes };
-}
-
-const server = createServerHarness();
-const { api } = server;
+const api = { buildPrompt, parseModelResponse, validateRequestBody, validateSchema };
 
 const validRequest = {
   projectName: "Kos Pintar",
@@ -143,4 +101,92 @@ test("AI prompt includes project schedule, budget, and optional deliverables", (
   assert.match(prompt, /Tanggal Mulai: 2026-09-28/);
   assert.match(prompt, /Rp100\.000\.000/);
   assert.match(prompt, /Reservasi online/);
+});
+
+test("model response parser accepts JSON fences and rejects oversized or malformed responses", () => {
+  assert.deepEqual(api.parseModelResponse('```json\n{"ok":true}\n```'), { ok: true });
+  assert.throws(() => api.parseModelResponse("{broken"), SyntaxError);
+  assert.throws(() => api.parseModelResponse("x".repeat(256_001)), /terlalu besar/);
+});
+
+test("HTTP server only serves allowlisted frontend assets and retains health endpoint", async (t) => {
+  const app = createApp({ generate: async () => { throw new Error("mock unavailable"); } });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  for (const asset of ["/", "/index.html", "/css/app.css", "/css/gantt.css", "/app.js", "/cobit-data.js", "/js/features/gantt-ui.js"]) {
+    const response = await fetch(`${base}${asset}`);
+    assert.equal(response.status, 200, `${asset} should be public`);
+  }
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const localReferences = Array.from(html.matchAll(/(?:src|href)="([^"]+)"/g), (match) => match[1])
+    .filter((reference) => !/^(?:https?:|data:|#)/i.test(reference));
+  for (const reference of localReferences) {
+    const response = await fetch(`${base}/${reference.replace(/^\/+/, "")}`);
+    assert.equal(response.status, 200, `${reference} should be served`);
+  }
+  for (const denied of ["/server.js", "/server/generation.js", "/test/server-validation.test.js", "/reference", "/node_modules/express/package.json", "/.env"]) {
+    const response = await fetch(`${base}${denied}`);
+    assert.equal(response.status, 404, `${denied} should not be public`);
+  }
+  const health = await fetch(`${base}/api/health`);
+  assert.equal(health.status, 200);
+  assert.equal((await health.json()).status, "ok");
+});
+
+test("all local HTML script and stylesheet references exist and are explicitly public", () => {
+  const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
+  const localReferences = Array.from(html.matchAll(/(?:src|href)="([^"]+)"/g), (match) => match[1])
+    .filter((reference) => !/^(?:https?:|data:|#)/i.test(reference));
+  assert.ok(localReferences.length > 0);
+  for (const reference of localReferences) {
+    const normalized = reference.replace(/^\/+/, "");
+    assert.ok(fs.existsSync(path.join(__dirname, "..", normalized)), `${reference} should exist`);
+    assert.ok(isPublicAssetPath(`/${normalized}`), `${reference} should be in the public allowlist`);
+  }
+});
+
+test("HTTP generation preserves validation and labeled fallback response behavior", async (t) => {
+  const app = createApp({ generate: async () => { throw new Error("mock unavailable"); } });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const url = `http://127.0.0.1:${server.address().port}/api/generate`;
+
+  const invalid = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...validRequest, duration: 0 }),
+  });
+  assert.equal(invalid.status, 400);
+  const fallback = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(validRequest),
+  });
+  assert.equal(fallback.status, 200);
+  assert.deepEqual(await fallback.json(), { fallback: true, reason: "mock unavailable" });
+});
+
+test("malformed and oversized JSON request bodies return explicit client errors", async (t) => {
+  const server = createApp().listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+  const url = `http://127.0.0.1:${server.address().port}/api/generate`;
+
+  const malformed = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{",
+  });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), { error: "JSON request body tidak valid" });
+  const oversized = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ data: "x".repeat(70_000) }),
+  });
+  assert.equal(oversized.status, 413);
 });
