@@ -44,7 +44,11 @@ const el = (tag, cls, text) => {
  * @returns {object} Struktur dokumen lengkap
  */
 function generateTemplate(input) {
-  const { projectName, objective, duration, teamSize, category, budgetRange } = input;
+  const {
+    projectName, objective, duration, teamSize, category, budgetRange,
+    // optional Phase 2A fields — all may be undefined for backward-compat
+    startDate, pmName, keyDeliverables, successCriteria, methodology, projectContext,
+  } = input;
 
   // Teks per kategori
   const categoryMeta = {
@@ -186,58 +190,130 @@ function generateTemplate(input) {
   const phaseCount = meta.costCategories.length;
   const weights = [0.1, 0.15, 0.2, 0.25, 0.15, 0.15];
 
+  // ── Parse optional multi-line inputs ────────────────────────────────────
+  // Split textarea values on newlines; filter blank lines; cap at 5 items.
+  const parseLines = (raw, max) =>
+    (raw || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean).slice(0, max);
+
+  const userDeliverables    = parseLines(keyDeliverables, 5);
+  const userSuccessCriteria = parseLines(successCriteria, 10);
+
+  // ── Decide whether to use deliverable-driven or category-static paths ──
+  // Phase 2B: when user supplies deliverables, all three (scope, WBS, milestones)
+  // become deliverable-driven. Fallback to category-static when no deliverables given.
+  const useDeliverablePath = userDeliverables.length > 0;
+
+  // ── Scope ────────────────────────────────────────────────────────────────
+  let finalInScope, finalOutScope;
+  if (useDeliverablePath) {
+    const scope = buildDeliverableScope(userDeliverables, meta);
+    finalInScope  = scope.inScope;
+    finalOutScope = scope.outScope;
+  } else {
+    finalInScope  = meta.inScope;
+    finalOutScope = meta.outScope;
+  }
+
+  // ── Deliverables list for Charter ────────────────────────────────────────
+  const finalDeliverables = useDeliverablePath ? userDeliverables : meta.deliverables;
+
+  // ── WBS & Milestones ─────────────────────────────────────────────────────
+  let wbs, milestoneStrings;
+
+  if (useDeliverablePath) {
+    // Phase 2B path: deliverable-oriented WBS + milestones aligned to WBS L1 phases
+    const result = buildDeliverableWBS(userDeliverables, duration);
+    wbs              = result.wbs;
+    milestoneStrings = buildDeliverableMilestones(result.l1Phases, duration, startDate);
+  } else {
+    // Category-static path (original behaviour — full backward compat)
+    wbs = [];
+    meta.wbsPhases.forEach((phase, phaseIdx) => {
+      const phaseId = `${phaseIdx + 1}`;
+      wbs.push({
+        id: phaseId,
+        name: phase,
+        level: 1,
+        deliverable: `Semua deliverable fase ${phase}`,
+        completion_criteria: `Semua work package Level 2 pada fase ini telah disetujui oleh Project Manager`,
+      });
+      const subActivities = getSubActivities(category, phaseIdx);
+      subActivities.forEach((sub, subIdx) => {
+        const subId = `${phaseId}.${subIdx + 1}`;
+        wbs.push({ id: subId, name: sub.name, level: 2, deliverable: sub.deliverable, completion_criteria: sub.criteria });
+        wbs.push({
+          id: `${subId}.1`,
+          name: `Eksekusi: ${sub.name}`,
+          level: 3,
+          deliverable: `Artefak teknis untuk ${sub.name}`,
+          completion_criteria: `Dokumen/artefak direview dan disetujui oleh lead teknis`,
+        });
+      });
+    });
+
+    // Category-static milestones (with or without start date)
+    if (startDate) {
+      const start = new Date(startDate);
+      const fmt = (d) => d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+      milestoneStrings = meta.wbsPhases.map((phase, i) => {
+        const weekEnd = Math.round(((i + 1) / meta.wbsPhases.length) * duration);
+        const ms = new Date(start);
+        ms.setDate(ms.getDate() + weekEnd * 7);
+        return `${fmt(ms)}: ${phase} selesai`;
+      });
+    } else {
+      milestoneStrings = meta.wbsPhases.map((phase, i) => {
+        const weekEnd = Math.round(((i + 1) / meta.wbsPhases.length) * duration);
+        return `Minggu ${weekEnd}: ${phase} selesai`;
+      });
+    }
+  }
+
+  // ── Compute header dates (independent of WBS path) ───────────────────────
+  let startDateLabel  = "Belum ditentukan";
+  let finishDateLabel = "Belum ditentukan";
+  if (startDate) {
+    const start  = new Date(startDate);
+    const finish = new Date(start);
+    finish.setDate(finish.getDate() + duration * 7);
+    const fmt = (d) => d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+    startDateLabel  = fmt(start);
+    finishDateLabel = fmt(finish);
+  }
+
+  // ── Domain-specific 6th stakeholder role ─────────────────────────────────
+  const domainRoles = {
+    web:            "Tim DevOps – Mengelola deployment dan pipeline CI/CD",
+    mobile:         "Mobile QA Engineer – Mengujian aplikasi di berbagai perangkat target",
+    data_ai:        "Data Engineer – Menyiapkan dan memelihara pipeline data",
+    infrastructure: "Network/System Engineer – Merancang dan mengkonfigurasi infrastruktur",
+  };
+
   // ── Project Charter ─────────────────────────────────────────────────────
   const charter = {
     objective,
-    in_scope: meta.inScope,
-    out_of_scope: meta.outScope,
+    in_scope:     finalInScope,
+    out_of_scope: finalOutScope,
     stakeholders: [
-      "Project Manager – Bertanggung jawab atas keseluruhan proyek",
+      `Project Manager${pmName ? " (" + pmName + ")" : ""} – Bertanggung jawab atas keseluruhan proyek`,
       "Tim Pengembang – Melaksanakan pekerjaan teknis",
       "Product Owner / Sponsor – Menyetujui deliverable dan anggaran",
       "Pengguna Akhir – Memberikan feedback dan melakukan UAT",
       "Tim QA – Memastikan kualitas deliverable",
+      domainRoles[category] || "Tim Teknis – Melaksanakan pekerjaan spesialisasi",
     ],
-    deliverables: meta.deliverables,
-    milestones: meta.wbsPhases.map((phase, i) => {
-      const weekEnd = Math.round(((i + 1) / meta.wbsPhases.length) * duration);
-      return `Minggu ${weekEnd}: ${phase} selesai`;
-    }),
+    deliverables: finalDeliverables,
+    milestones:   milestoneStrings,
+    // Phase 2A identity fields
+    project_title:    projectName,
+    start_date:       startDateLabel,
+    finish_date:      finishDateLabel,
+    budget_info:      budgetRange,
+    pm_name:          pmName || "",
+    methodology:      methodology || "",
+    success_criteria: userSuccessCriteria,
+    project_context:  projectContext || "",
   };
-
-  // ── WBS ─────────────────────────────────────────────────────────────────
-  const wbs = [];
-  meta.wbsPhases.forEach((phase, phaseIdx) => {
-    const phaseId = `${phaseIdx + 1}`;
-    wbs.push({
-      id: phaseId,
-      name: phase,
-      level: 1,
-      deliverable: `Semua deliverable fase ${phase}`,
-      completion_criteria: `Semua work package Level 2 pada fase ini telah disetujui oleh Project Manager`,
-    });
-
-    // Sub-aktivitas Level 2 & 3
-    const subActivities = getSubActivities(category, phaseIdx);
-    subActivities.forEach((sub, subIdx) => {
-      const subId = `${phaseId}.${subIdx + 1}`;
-      wbs.push({
-        id: subId,
-        name: sub.name,
-        level: 2,
-        deliverable: sub.deliverable,
-        completion_criteria: sub.criteria,
-      });
-      // Level 3 task
-      wbs.push({
-        id: `${subId}.1`,
-        name: `Eksekusi: ${sub.name}`,
-        level: 3,
-        deliverable: `Artefak teknis untuk ${sub.name}`,
-        completion_criteria: `Dokumen/artefak direview dan disetujui oleh lead teknis`,
-      });
-    });
-  });
 
   // ── Risk Register ───────────────────────────────────────────────────────
   const risk_register = meta.risks.map((r, i) => ({
@@ -249,12 +325,24 @@ function generateTemplate(input) {
   }));
 
   // ── Cost Estimate ───────────────────────────────────────────────────────
+  // Each row: labor cost (hours × rate) + non-labor cost = row_total.
+  // non_labor defaults to 0 and is editable by the user.
   const cost_estimate = meta.costCategories.map((cat, i) => {
     const w = weights[i] || 1 / phaseCount;
     const hours = Math.round(totalHours * w);
-    const subtotal = hours * baseRate;
-    return { category: cat, hours, rate: baseRate, subtotal };
+    const labor = hours * baseRate;
+    const non_labor = 0;
+    const row_total = labor + non_labor;
+    return { category: cat, hours, rate: baseRate, subtotal: labor, non_labor, row_total };
   });
+
+  // ── Cost Summary (contingency reserve + grand total) ────────────────────
+  // contingency_pct is an editable template assumption, not a mandatory standard.
+  // Default 10% as per the reference cost estimate template (cost estimate.xlsx row 21).
+  const contingency_pct = 10;
+  const cost_subtotal = cost_estimate.reduce((s, c) => s + c.row_total, 0);
+  const contingency_reserve = Math.round(cost_subtotal * contingency_pct / 100);
+  const grand_total = cost_subtotal + contingency_reserve;
 
   // ── Assumptions ─────────────────────────────────────────────────────────
   const assumptions = [
@@ -265,10 +353,269 @@ function generateTemplate(input) {
     "Sponsor proyek tersedia untuk review dan persetujuan rutin",
     "Infrastruktur dasar (komputer, internet) sudah tersedia",
     "Tidak ada perubahan organisasi besar selama durasi proyek",
+    ...(startDate    ? [] : ["[Asumsi] Tanggal mulai proyek belum ditentukan; milestone menggunakan nomor minggu relatif"]),
+    ...(pmName       ? [] : ["[Asumsi] Nama Project Manager belum ditentukan"]),
+    ...(methodology  ? [`Proyek menggunakan metodologi ${methodology}`] : ["[Asumsi] Metodologi pengembangan belum ditentukan"]),
+    ...(userDeliverables.length > 0  ? [] : ["[Asumsi] Deliverable utama menggunakan template standar kategori proyek"]),
+    ...(userSuccessCriteria.length > 0 ? [] : ["[Asumsi] Kriteria keberhasilan akan ditentukan bersama stakeholder"]),
   ];
 
-  return { charter, wbs, risk_register, cost_estimate, assumptions };
+  return { charter, wbs, risk_register, cost_estimate, cost_summary: { contingency_pct, cost_subtotal, contingency_reserve, grand_total }, assumptions };
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 2B — Deliverable-driven scope, WBS, and milestones
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * buildDeliverableScope(userDeliverables, meta)
+ *
+ * When the user has supplied key deliverables, generate project-specific
+ * in-scope and out-of-scope lists instead of the static category template.
+ *
+ * Rules:
+ *  • Every user deliverable becomes an in-scope item.
+ *  • Generic cross-cutting activities (requirements, testing, PM) are always in scope.
+ *  • Out-of-scope items from the category template are kept ONLY if they do not
+ *    contradict any user deliverable (case-insensitive keyword match).
+ *  • Category template's own in-scope list is dropped to avoid confusing users
+ *    with generic tasks that may not apply (e.g. firewall/VPN for Kos Pintar).
+ *
+ * @param {string[]} userDeliverables  Parsed deliverable lines from user input.
+ * @param {object}   meta              Category meta object with .outScope array.
+ * @returns {{ inScope: string[], outScope: string[] }}
+ */
+function buildDeliverableScope(userDeliverables, meta) {
+  // Build in-scope: one item per deliverable + standard PM activities
+  const inScope = [
+    ...userDeliverables.map((d) => `Pengembangan dan implementasi: ${d}`),
+    "Pengujian fungsional dan penerimaan pengguna (UAT) untuk semua deliverable",
+    "Manajemen proyek dan koordinasi tim",
+    "Dokumentasi teknis dan serah terima kepada tim operasional",
+  ];
+
+  // Cross-language synonym pairs: if the deliverable text contains the English word,
+  // treat the Indonesian equivalent as a match too (and vice versa).
+  // This prevents "Pengembangan aplikasi" from surviving as out-of-scope when
+  // the user supplied a deliverable like "Web application".
+  const synonymPairs = [
+    ["application", "aplikasi"],
+    ["app",         "aplikasi"],
+    ["web",         "web"],
+    ["mobile",      "mobile"],
+    ["dashboard",   "dashboard"],
+    ["data",        "data"],
+    ["system",      "sistem"],
+    ["database",    "database"],
+    ["monitoring",  "monitoring"],
+    ["integration", "integrasi"],
+    ["payment",     "pembayaran"],
+    ["report",      "laporan"],
+    ["testing",     "pengujian"],
+    ["document",    "dokumentasi"],
+  ];
+
+  // Build an expanded keyword set from user deliverables including cross-language synonyms
+  const rawKeywords = userDeliverables
+    .join(" ")
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 3);
+
+  const expandedKeywords = new Set(rawKeywords);
+  synonymPairs.forEach(([en, id]) => {
+    if (rawKeywords.includes(en))  expandedKeywords.add(id);
+    if (rawKeywords.includes(id))  expandedKeywords.add(en);
+  });
+
+  // Keep an out-of-scope item only if none of its significant words appear
+  // in the expanded deliverable keyword set
+  const outScope = meta.outScope.filter((item) => {
+    const itemWords = item.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+    return !itemWords.some((w) => expandedKeywords.has(w));
+  });
+
+  // Always add a standard clarifying out-of-scope statement
+  outScope.push("Pengembangan fitur di luar daftar deliverable yang telah disepakati");
+  outScope.push("Pelatihan pengguna akhir di luar lingkup tim proyek (kecuali disebutkan)");
+
+  return { inScope, outScope };
+}
+
+/**
+ * buildDeliverableWBS(userDeliverables, duration, startDate)
+ *
+ * Build a 3-level, deliverable-oriented WBS when user deliverables are present.
+ *
+ * Structure:
+ *  L1  1  – Inisiasi & Perencanaan
+ *  L1  2…N – one phase per user deliverable (Pengembangan [deliverable])
+ *  L1  N+1 – Pengujian & Jaminan Kualitas
+ *  L1  N+2 – Penutupan Proyek
+ *
+ * Each L1 phase gets 2 L2 work packages.
+ * Each L2 work package gets 1 L3 task with a meaningful description.
+ *
+ * @param {string[]} userDeliverables
+ * @param {number}   duration   Project duration in weeks (for completion criteria phrasing)
+ * @returns {{ wbs: object[], l1Phases: string[] }}
+ */
+function buildDeliverableWBS(userDeliverables, duration) {
+  const wbs = [];
+
+  // Fixed phases surrounding deliverable development phases
+  const initiationPhase = "Inisiasi & Perencanaan";
+  const testingPhase    = "Pengujian & Jaminan Kualitas";
+  const closingPhase    = "Penutupan Proyek";
+
+  // Collect all L1 phase names in order (used for milestone generation)
+  const l1Phases = [
+    initiationPhase,
+    ...userDeliverables.map((d) => `Pengembangan: ${d}`),
+    testingPhase,
+    closingPhase,
+  ];
+
+  // ── Work-package templates per phase type ──────────────────────────────
+  // Each entry: { name, deliverable, criteria, l3name, l3deliverable }
+  const initiationWPs = [
+    {
+      name: "Penyusunan Project Charter & Rencana Proyek",
+      deliverable: "Project Charter dan Project Management Plan yang disetujui",
+      criteria: "Ditandatangani oleh Project Manager dan sponsor",
+      l3: { name: "Finalisasi dan distribusi Project Charter", deliverable: "Project Charter v1.0", criteria: "Dokumen diterima semua stakeholder" },
+    },
+    {
+      name: "Analisis Kebutuhan & Kick-off",
+      deliverable: "Dokumen analisis kebutuhan awal dan notulen kick-off",
+      criteria: "Semua stakeholder utama telah dikonfirmasi",
+      l3: { name: "Pelaksanaan rapat kick-off proyek", deliverable: "Notulen kick-off", criteria: "Ditandatangani peserta rapat" },
+    },
+  ];
+
+  const testingWPs = [
+    {
+      name: "Pengujian Integrasi & Fungsional",
+      deliverable: "Laporan pengujian integrasi seluruh deliverable",
+      criteria: "Semua skenario uji utama lulus; 0 defect kritis terbuka",
+      l3: { name: "Eksekusi skenario pengujian integrasi", deliverable: "Test execution report", criteria: "Coverage ≥ 80% pada modul utama" },
+    },
+    {
+      name: "User Acceptance Testing (UAT)",
+      deliverable: "Laporan UAT dengan sign-off pengguna",
+      criteria: "Sign-off UAT diterima dari Product Owner",
+      l3: { name: "Pelaksanaan sesi UAT dengan pengguna", deliverable: "UAT sign-off document", criteria: "Pengguna menyetujui semua deliverable" },
+    },
+  ];
+
+  const closingWPs = [
+    {
+      name: "Serah Terima Deliverable & Dokumentasi",
+      deliverable: "Paket serah terima lengkap (semua deliverable + dokumentasi)",
+      criteria: "Semua deliverable telah diterima tim operasional",
+      l3: { name: "Finalisasi dokumen serah terima", deliverable: "Berita Acara Serah Terima", criteria: "Ditandatangani semua pihak" },
+    },
+    {
+      name: "Penutupan Proyek & Lessons Learned",
+      deliverable: "Laporan penutupan proyek dan lessons learned",
+      criteria: "Laporan disetujui Project Manager dan didistribusikan",
+      l3: { name: "Penyusunan laporan penutupan", deliverable: "Laporan penutupan proyek", criteria: "Semua aksi penutupan terselesaikan" },
+    },
+  ];
+
+  // ── Helpers to push L1 + L2 + L3 rows ────────────────────────────────
+  let phaseNum = 0;
+
+  const pushPhase = (phaseName, workPackages) => {
+    phaseNum += 1;
+    const phaseId = String(phaseNum);
+    wbs.push({
+      id: phaseId,
+      name: phaseName,
+      level: 1,
+      deliverable: `Semua deliverable pada fase ${phaseName}`,
+      completion_criteria: "Semua work package Level 2 pada fase ini telah disetujui oleh Project Manager",
+    });
+    workPackages.forEach((wp, wpIdx) => {
+      const wpId = `${phaseId}.${wpIdx + 1}`;
+      wbs.push({ id: wpId, name: wp.name, level: 2, deliverable: wp.deliverable, completion_criteria: wp.criteria });
+      wbs.push({
+        id: `${wpId}.1`,
+        name: wp.l3.name,
+        level: 3,
+        deliverable: wp.l3.deliverable,
+        completion_criteria: wp.l3.criteria,
+      });
+    });
+  };
+
+  // ── Build each phase ──────────────────────────────────────────────────
+  pushPhase(initiationPhase, initiationWPs);
+
+  userDeliverables.forEach((deliverable) => {
+    const phaseName = `Pengembangan: ${deliverable}`;
+    // Two work packages per deliverable phase
+    const devWPs = [
+      {
+        name: `Analisis & Desain: ${deliverable}`,
+        deliverable: `Dokumen desain dan spesifikasi untuk ${deliverable}`,
+        criteria: "Spesifikasi disetujui Product Owner sebelum implementasi dimulai",
+        l3: {
+          name: `Penyusunan spesifikasi detail ${deliverable}`,
+          deliverable: `Spesifikasi teknis ${deliverable} v1.0`,
+          criteria: "Direview dan disetujui lead teknis",
+        },
+      },
+      {
+        name: `Implementasi & Verifikasi: ${deliverable}`,
+        deliverable: `${deliverable} yang telah diimplementasi dan diverifikasi`,
+        criteria: "Fungsionalitas utama berjalan sesuai spesifikasi; unit test passed",
+        l3: {
+          name: `Pengujian unit dan code review: ${deliverable}`,
+          deliverable: "Laporan pengujian unit dan catatan code review",
+          criteria: "0 bug kritis; code review selesai",
+        },
+      },
+    ];
+    pushPhase(phaseName, devWPs);
+  });
+
+  pushPhase(testingPhase, testingWPs);
+  pushPhase(closingPhase,  closingWPs);
+
+  return { wbs, l1Phases };
+}
+
+/**
+ * buildDeliverableMilestones(l1Phases, duration, startDate)
+ *
+ * Map each L1 WBS phase to a milestone date/week string.
+ * Mirrors the existing milestone-string format (with or without start date).
+ *
+ * @param {string[]} l1Phases
+ * @param {number}   duration  Weeks
+ * @param {string}   startDate ISO date string or empty
+ * @returns {string[]}
+ */
+function buildDeliverableMilestones(l1Phases, duration, startDate) {
+  const count = l1Phases.length;
+  if (startDate) {
+    const start = new Date(startDate);
+    const fmt = (d) => d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+    return l1Phases.map((phase, i) => {
+      const weekEnd = Math.round(((i + 1) / count) * duration);
+      const ms = new Date(start);
+      ms.setDate(ms.getDate() + weekEnd * 7);
+      return `${fmt(ms)}: ${phase} selesai`;
+    });
+  }
+  return l1Phases.map((phase, i) => {
+    const weekEnd = Math.round(((i + 1) / count) * duration);
+    return `Minggu ${weekEnd}: ${phase} selesai`;
+  });
+}
+
+// ── End Phase 2B helpers ────────────────────────────────────────────────────
 
 /** Sub-aktivitas per fase per kategori */
 function getSubActivities(category, phaseIndex) {
@@ -337,9 +684,9 @@ function runGovernanceReview(doc, input) {
   const kpis = buildKPIs(doc, input, mappings);
 
   // Skor kesesuaian indikatif
-  const { criteria, total, percentage } = computeScore(doc, input);
+  const { criteria, total, maxTotal, percentage } = computeScore(doc, input);
 
-  return { mappings, kpis, criteria, total, percentage };
+  return { mappings, kpis, criteria, total, maxTotal, percentage };
 }
 
 /**
@@ -510,11 +857,21 @@ function exportCSV(section) {
     const c = currentDoc.charter;
     rows = [
       ["Bagian", "Konten"],
+      // identity / header fields (Phase 2A)
+      ["Nama Proyek",      c.project_title  || ""],
+      ["Tanggal Mulai",    c.start_date     || ""],
+      ["Proyeksi Selesai", c.finish_date    || ""],
+      ["Anggaran",         c.budget_info    || ""],
+      ["Project Manager",  c.pm_name        || ""],
+      ["Metodologi",       c.methodology    || ""],
+      // core charter content
       ["Tujuan", c.objective],
+      ...(c.project_context ? [["Konteks Proyek", c.project_context]] : []),
       ...c.in_scope.map((s) => ["Dalam Lingkup", s]),
       ...c.out_of_scope.map((s) => ["Luar Lingkup", s]),
+      ...c.deliverables.map((s) => ["Deliverable Utama", s]),
+      ...((c.success_criteria || []).map((s) => ["Kriteria Keberhasilan", s])),
       ...c.stakeholders.map((s) => ["Stakeholder", s]),
-      ...c.deliverables.map((s) => ["Deliverable", s]),
       ...c.milestones.map((s) => ["Milestone", s]),
     ];
   } else if (section === "wbs") {
@@ -527,10 +884,20 @@ function exportCSV(section) {
     rows.push(...currentDoc.risk_register.map((r) => [r.id, r.description, r.probability, r.impact, r.mitigation]));
   } else if (section === "cost") {
     filename = "estimasi_biaya.csv";
-    rows = [["Kategori", "Jam (Hours)", "Tarif (IDR/jam)", "Subtotal (IDR)"]];
-    rows.push(...currentDoc.cost_estimate.map((c) => [c.category, c.hours, c.rate, c.subtotal]));
-    const totalCost = currentDoc.cost_estimate.reduce((s, c) => s + c.subtotal, 0);
-    rows.push(["TOTAL", "", "", totalCost]);
+    rows = [["Kategori", "Jam (Hours)", "Tarif (IDR/jam)", "Biaya Tenaga Kerja (IDR)", "Biaya Non-Tenaga Kerja (IDR)", "Total Baris (IDR)"]];
+    rows.push(...currentDoc.cost_estimate.map((c) => [
+      c.category,
+      c.hours,
+      c.rate,
+      c.subtotal,
+      c.non_labor ?? 0,
+      c.row_total ?? c.subtotal,
+    ]));
+    // Summary rows — read from currentDoc.cost_summary (kept in sync by updateCostSummary)
+    const cs = currentDoc.cost_summary || {};
+    rows.push(["Subtotal", "", "", "", "", cs.cost_subtotal ?? ""]);
+    rows.push([`Cadangan Risiko (${cs.contingency_pct ?? 10}%)`, "", "", "", "", cs.contingency_reserve ?? ""]);
+    rows.push(["Total Estimasi Akhir", "", "", "", "", cs.grand_total ?? ""]);
   } else if (section === "governance") {
     filename = "governance_review.csv";
     rows = [["Kode COBIT", "Nama Objective", "Alasan Pemetaan"]];
@@ -614,7 +981,7 @@ function renderDocument(doc, input) {
   renderCharter(doc.charter, input);
   renderWBS(doc.wbs);
   renderRiskRegister(doc.risk_register);
-  renderCostEstimate(doc.cost_estimate);
+  renderCostEstimate(doc.cost_estimate, doc.cost_summary);
   renderAssumptions(doc.assumptions);
 
   // Governance
@@ -631,8 +998,9 @@ function renderCharter(charter, input) {
   const c = $("charter-content");
   if (!c) return;
 
-  // Render a styled list with check icons
+  // ── Shared helpers ───────────────────────────────────────────────────────
   const listHTML = (items, iconColor) => {
+    if (!items || items.length === 0) return `<p class="text-sm text-slate-400 italic">Belum ditentukan</p>`;
     const color = iconColor || "text-blue-500";
     return `<ul class="space-y-1.5">${items.map((i) => `
       <li class="flex items-start gap-2 text-slate-700 text-sm">
@@ -643,40 +1011,129 @@ function renderCharter(charter, input) {
       </li>`).join("")}</ul>`;
   };
 
-  // Objective highlighted block
-  const objectiveBlock = `
-    <div class="mb-5 p-4 bg-blue-50 border border-blue-100 rounded-xl">
-      <p class="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-1">Tujuan Proyek</p>
-      <p class="text-slate-800 text-sm leading-relaxed">${escHtml(charter.objective)}</p>
+  const sectionLabel = (text, color) =>
+    `<p class="text-xs font-semibold uppercase tracking-widest ${color || "text-slate-500"} mb-2">${escHtml(text)}</p>`;
+
+  const infoRow = (label, value) => {
+    const display = value ? escHtml(value) : `<span class="text-slate-400 italic">Belum ditentukan</span>`;
+    return `<div class="flex flex-col sm:flex-row sm:items-baseline gap-0.5 sm:gap-2 text-sm border-b border-slate-100 py-2 last:border-0">
+      <span class="font-semibold text-slate-600 shrink-0 w-full sm:w-44">${escHtml(label)}</span>
+      <span class="text-slate-700">${display}</span>
+    </div>`;
+  };
+
+  // ── Section: Header / Identity ───────────────────────────────────────────
+  const headerSection = `
+    <div class="mb-5 p-4 bg-slate-800 text-white rounded-xl">
+      <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-1">Project Charter</p>
+      <h3 class="text-base font-bold leading-tight">${escHtml(charter.project_title || input.projectName)}</h3>
+    </div>
+    <div class="mb-5 p-4 bg-white border border-slate-200 rounded-xl">
+      ${sectionLabel("Informasi Proyek", "text-slate-500")}
+      <div class="divide-y divide-slate-100">
+        ${infoRow("Nama Proyek",     charter.project_title || input.projectName)}
+        ${infoRow("Tanggal Mulai",   charter.start_date)}
+        ${infoRow("Proyeksi Selesai",charter.finish_date)}
+        ${infoRow("Anggaran",        charter.budget_info || input.budgetRange)}
+        ${infoRow("Project Manager", charter.pm_name)}
+        ${infoRow("Metodologi",      charter.methodology)}
+      </div>
     </div>`;
 
-  c.innerHTML = `
-    ${objectiveBlock}
+  // ── Section: Objective & Context ─────────────────────────────────────────
+  const objectiveSection = `
+    <div class="mb-5 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+      ${sectionLabel("Tujuan & Latar Belakang Proyek", "text-blue-600")}
+      <p class="text-slate-800 text-sm leading-relaxed">${escHtml(charter.objective)}</p>
+      ${charter.project_context ? `<p class="text-slate-600 text-sm leading-relaxed mt-2 pt-2 border-t border-blue-100">${escHtml(charter.project_context)}</p>` : ""}
+    </div>`;
+
+  // ── Section: Scope ────────────────────────────────────────────────────────
+  const scopeSection = `
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
       <div class="p-4 bg-white border border-slate-200 rounded-xl">
-        <p class="text-xs font-semibold uppercase tracking-widest text-emerald-600 mb-2">Dalam Lingkup</p>
+        ${sectionLabel("Dalam Lingkup", "text-emerald-600")}
         ${listHTML(charter.in_scope, "text-emerald-500")}
       </div>
       <div class="p-4 bg-white border border-slate-200 rounded-xl">
-        <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Luar Lingkup</p>
+        ${sectionLabel("Luar Lingkup", "text-slate-400")}
         ${listHTML(charter.out_of_scope, "text-slate-400")}
       </div>
-    </div>
-    <div class="p-4 bg-white border border-slate-200 rounded-xl mb-4">
-      <p class="text-xs font-semibold uppercase tracking-widest text-purple-500 mb-2">Stakeholder</p>
-      ${listHTML(charter.stakeholders, "text-purple-400")}
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    </div>`;
+
+  // ── Section: Deliverables & Success Criteria ──────────────────────────────
+  const successCriteriaHTML = charter.success_criteria && charter.success_criteria.length > 0
+    ? listHTML(charter.success_criteria, "text-teal-500")
+    : `<p class="text-sm text-slate-400 italic">Belum ditentukan — akan disepakati bersama stakeholder</p>`;
+
+  const deliverableSection = `
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
       <div class="p-4 bg-white border border-slate-200 rounded-xl">
-        <p class="text-xs font-semibold uppercase tracking-widest text-blue-500 mb-2">Deliverable</p>
+        ${sectionLabel("Deliverable Utama", "text-blue-600")}
         ${listHTML(charter.deliverables, "text-blue-400")}
       </div>
-      <div class="p-4 bg-white border border-slate-200 rounded-xl">
-        <p class="text-xs font-semibold uppercase tracking-widest text-amber-500 mb-2">Milestone</p>
-        ${listHTML(charter.milestones, "text-amber-400")}
+      <div class="p-4 bg-teal-50 border border-teal-100 rounded-xl">
+        ${sectionLabel("Kriteria Keberhasilan", "text-teal-700")}
+        ${successCriteriaHTML}
       </div>
-    </div>
-  `;
+    </div>`;
+
+  // ── Section: Stakeholders ─────────────────────────────────────────────────
+  const stakeholderSection = `
+    <div class="mb-5 p-4 bg-white border border-slate-200 rounded-xl">
+      ${sectionLabel("Peran & Tanggung Jawab Stakeholder", "text-purple-600")}
+      ${listHTML(charter.stakeholders, "text-purple-400")}
+    </div>`;
+
+  // ── Section: Milestones ───────────────────────────────────────────────────
+  const milestoneSection = `
+    <div class="mb-5 p-4 bg-white border border-slate-200 rounded-xl">
+      ${sectionLabel("Milestone", "text-amber-600")}
+      ${listHTML(charter.milestones, "text-amber-400")}
+    </div>`;
+
+  // ── Section: Approach ─────────────────────────────────────────────────────
+  const methodLabel = charter.methodology || "Belum ditentukan";
+  const methodDesc  = {
+    "Waterfall":          "Proyek dilaksanakan secara sekuensial: setiap fase diselesaikan sebelum fase berikutnya dimulai. Perubahan lingkup dikelola melalui proses perubahan formal.",
+    "Agile / Scrum":      "Proyek dilaksanakan secara iteratif dalam sprint. Deliverable dirilis secara bertahap; kebutuhan dapat disesuaikan setiap sprint.",
+    "Hybrid (Waterfall + Agile)": "Perencanaan dan arsitektur mengikuti pendekatan Waterfall; eksekusi dan pengujian dilakukan secara iteratif (Agile).",
+    "Other":              "Pendekatan pengembangan disesuaikan dengan kebutuhan proyek dan tim.",
+  };
+  const approachDetail = methodDesc[charter.methodology] || "Pendekatan pengembangan akan ditentukan pada fase inisiasi proyek.";
+
+  const approachSection = `
+    <div class="mb-5 p-4 bg-white border border-slate-200 rounded-xl">
+      ${sectionLabel("Pendekatan Proyek", "text-indigo-600")}
+      <p class="text-sm font-semibold text-slate-700 mb-1">${escHtml(methodLabel)}</p>
+      <p class="text-sm text-slate-600 leading-relaxed">${escHtml(approachDetail)}</p>
+    </div>`;
+
+  // ── Section: Sign-off (always shown as draft placeholder) ────────────────
+  const signoffSection = `
+    <div class="mt-5 p-4 border-2 border-dashed border-slate-200 rounded-xl">
+      ${sectionLabel("Persetujuan / Sign-off (Draft)", "text-slate-400")}
+      <p class="text-xs text-slate-400 italic mb-3">Bagian ini diisi dan ditandatangani setelah charter disetujui semua pihak.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        ${["Project Manager", "Product Owner / Sponsor", "Tim QA"].map((role) => `
+          <div class="p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <p class="text-xs font-semibold text-slate-500 mb-6">${escHtml(role)}</p>
+            <div class="border-t border-slate-300 pt-1">
+              <p class="text-xs text-slate-400">Tanda tangan &amp; tanggal</p>
+            </div>
+          </div>`).join("")}
+      </div>
+    </div>`;
+
+  c.innerHTML =
+    headerSection +
+    objectiveSection +
+    scopeSection +
+    deliverableSection +
+    stakeholderSection +
+    milestoneSection +
+    approachSection +
+    signoffSection;
 }
 
 function renderWBS(wbs) {
@@ -742,11 +1199,20 @@ function renderRiskRegister(risks) {
     .join("");
 }
 
-function renderCostEstimate(costs) {
+/**
+ * renderCostEstimate(costs, summary)
+ * Render the cost estimate table rows and wire up all editable inputs.
+ * Each data row has: Kategori | Jam | Tarif | Non-Labor | Total Baris
+ * The tfoot shows: Subtotal | Cadangan (editable %) | Total Estimasi Akhir
+ *
+ * @param {Array}  costs    Array of cost_estimate items from currentDoc
+ * @param {object} summary  { contingency_pct, cost_subtotal, contingency_reserve, grand_total }
+ */
+function renderCostEstimate(costs, summary) {
   const tbody = $("cost-tbody");
   if (!tbody) return;
 
-  const fmt = (n) => Number(n).toLocaleString("id-ID");
+  const fmt = (n) => Math.max(0, Number(n) || 0).toLocaleString("id-ID");
 
   tbody.innerHTML = costs
     .map(
@@ -755,26 +1221,36 @@ function renderCostEstimate(costs) {
         <td class="px-4 py-3 text-center">
           <input type="number"
             class="cost-hours w-20 border border-slate-300 rounded-lg px-2 py-1 text-right text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 focus:outline-none transition"
-            value="${c.hours}" min="0" data-idx="${i}" aria-label="Jam untuk ${escHtml(c.category)}">
+            value="${Math.max(0, c.hours || 0)}" min="0" data-idx="${i}" aria-label="Jam untuk ${escHtml(c.category)}">
         </td>
         <td class="px-4 py-3 text-center">
           <input type="number"
             class="cost-rate w-28 border border-slate-300 rounded-lg px-2 py-1 text-right text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 focus:outline-none transition"
-            value="${c.rate}" min="0" data-idx="${i}" aria-label="Tarif untuk ${escHtml(c.category)}">
+            value="${Math.max(0, c.rate || 0)}" min="0" data-idx="${i}" aria-label="Tarif untuk ${escHtml(c.category)}">
         </td>
-        <td class="px-4 py-3 text-right font-semibold text-emerald-700 cost-subtotal" id="cost-sub-${i}">Rp ${fmt(c.subtotal)}</td>
+        <td class="px-4 py-3 text-center">
+          <input type="number"
+            class="cost-nonlabor w-28 border border-slate-300 rounded-lg px-2 py-1 text-right text-sm focus:ring-2 focus:ring-emerald-400 focus:border-emerald-400 focus:outline-none transition"
+            value="${Math.max(0, c.non_labor || 0)}" min="0" data-idx="${i}" aria-label="Biaya non-tenaga kerja untuk ${escHtml(c.category)}">
+        </td>
+        <td class="px-4 py-3 text-right font-semibold text-emerald-700 cost-row-total" id="cost-sub-${i}">Rp ${fmt(c.row_total)}</td>
       </tr>`
     )
     .join("");
 
-  updateCostTotal();
+  updateCostSummary();
 
-  // Event listeners untuk edit biaya
-  tbody.querySelectorAll(".cost-hours, .cost-rate").forEach((input) => {
+  // Event listeners untuk semua kolom yang dapat diedit
+  tbody.querySelectorAll(".cost-hours, .cost-rate, .cost-nonlabor").forEach((input) => {
     input.addEventListener("input", onCostEdit);
   });
 }
 
+/**
+ * onCostEdit(e)
+ * Handles edits to hours, rate, or non-labor inputs.
+ * Recalculates: subtotal (labor) = hours × rate; row_total = subtotal + non_labor.
+ */
 function onCostEdit(e) {
   const idx = parseInt(e.target.dataset.idx, 10);
   if (!currentDoc || isNaN(idx)) return;
@@ -782,26 +1258,66 @@ function onCostEdit(e) {
   const row = document.querySelector(`[data-cost-idx="${idx}"]`);
   if (!row) return;
 
-  const hoursInput = row.querySelector(".cost-hours");
-  const rateInput = row.querySelector(".cost-rate");
-  const hours = parseFloat(hoursInput?.value) || 0;
-  const rate = parseFloat(rateInput?.value) || 0;
-  const subtotal = hours * rate;
+  const hours    = Math.max(0, parseFloat(row.querySelector(".cost-hours")?.value)    || 0);
+  const rate     = Math.max(0, parseFloat(row.querySelector(".cost-rate")?.value)     || 0);
+  const nonLabor = Math.max(0, parseFloat(row.querySelector(".cost-nonlabor")?.value) || 0);
+  const labor    = hours * rate;
+  const rowTotal = labor + nonLabor;
 
-  currentDoc.cost_estimate[idx].hours = hours;
-  currentDoc.cost_estimate[idx].rate = rate;
-  currentDoc.cost_estimate[idx].subtotal = subtotal;
+  // Keep existing subtotal field = labor cost (backward-compatible with AI schema)
+  currentDoc.cost_estimate[idx].hours     = hours;
+  currentDoc.cost_estimate[idx].rate      = rate;
+  currentDoc.cost_estimate[idx].subtotal  = labor;
+  currentDoc.cost_estimate[idx].non_labor = nonLabor;
+  currentDoc.cost_estimate[idx].row_total = rowTotal;
 
-  const subCell = $(`cost-sub-${idx}`);
-  if (subCell) subCell.textContent = `Rp ${subtotal.toLocaleString("id-ID")}`;
-  updateCostTotal();
+  const rowTotalCell = $(`cost-sub-${idx}`);
+  if (rowTotalCell) rowTotalCell.textContent = `Rp ${rowTotal.toLocaleString("id-ID")}`;
+  updateCostSummary();
 }
 
-function updateCostTotal() {
-  const total = currentDoc?.cost_estimate?.reduce((s, c) => s + (c.subtotal || 0), 0) || 0;
-  const totalEl = $("cost-total");
-  if (totalEl) totalEl.textContent = `Rp ${total.toLocaleString("id-ID")}`;
+/**
+ * updateCostSummary()
+ * Recomputes and renders:
+ *   cost_subtotal        = sum of all row_totals
+ *   contingency_reserve  = cost_subtotal × contingency_pct / 100
+ *   grand_total          = cost_subtotal + contingency_reserve
+ *
+ * Also keeps #cost-total updated for any legacy references (it now shows grand_total).
+ */
+function updateCostSummary() {
+  if (!currentDoc) return;
+  const items = currentDoc.cost_estimate || [];
+
+  const costSubtotal = items.reduce((s, c) => s + (Math.max(0, c.row_total || 0)), 0);
+
+  // Read current contingency % from the editable input; fall back to stored value or 10
+  const pctInput = $("contingency-pct-input");
+  let pct = parseFloat(pctInput?.value);
+  if (isNaN(pct) || pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  const reserve   = Math.round(costSubtotal * pct / 100);
+  const grandTotal = costSubtotal + reserve;
+
+  // Persist into doc so CSV export reads current values
+  if (!currentDoc.cost_summary) currentDoc.cost_summary = {};
+  currentDoc.cost_summary.contingency_pct       = pct;
+  currentDoc.cost_summary.cost_subtotal         = costSubtotal;
+  currentDoc.cost_summary.contingency_reserve   = reserve;
+  currentDoc.cost_summary.grand_total           = grandTotal;
+
+  // Update display cells
+  const subtotalEl  = $("cost-subtotal-display");
+  const reserveEl   = $("cost-reserve-display");
+  const grandTotalEl = $("cost-total"); // existing ID — now shows grand total
+
+  if (subtotalEl)   subtotalEl.textContent  = `Rp ${costSubtotal.toLocaleString("id-ID")}`;
+  if (reserveEl)    reserveEl.textContent   = `Rp ${reserve.toLocaleString("id-ID")}`;
+  if (grandTotalEl) grandTotalEl.textContent = `Rp ${grandTotal.toLocaleString("id-ID")}`;
 }
+
+// Keep a thin backward-compatible alias so any future caller of the old name still works
+function updateCostTotal() { updateCostSummary(); }
 
 function renderAssumptions(assumptions) {
   const container = $("assumptions-content");
@@ -973,12 +1489,20 @@ function escHtml(str) {
  */
 function getFormData() {
   const data = {
-    projectName: ($("project-name")?.value || "").trim(),
-    objective: ($("objective")?.value || "").trim(),
-    duration: parseInt($("duration")?.value || "0", 10),
-    teamSize: parseInt($("team-size")?.value || "0", 10),
-    category: $("category")?.value || "",
-    budgetRange: ($("budget-range")?.value || "").trim(),
+    // required fields (unchanged)
+    projectName:  ($("project-name")?.value || "").trim(),
+    objective:    ($("objective")?.value || "").trim(),
+    duration:     parseInt($("duration")?.value || "0", 10),
+    teamSize:     parseInt($("team-size")?.value || "0", 10),
+    category:     $("category")?.value || "",
+    budgetRange:  ($("budget-range")?.value || "").trim(),
+    // optional Phase 2A fields — silently empty when not filled
+    startDate:       ($("start-date")?.value        || "").trim(),
+    pmName:          ($("pm-name")?.value           || "").trim(),
+    methodology:     ($("methodology")?.value       || "").trim(),
+    keyDeliverables: ($("key-deliverables")?.value  || "").trim(),
+    successCriteria: ($("success-criteria")?.value  || "").trim(),
+    projectContext:  ($("project-context")?.value   || "").trim(),
   };
 
   const errors = [];
@@ -1063,10 +1587,54 @@ async function onGenerateAI() {
       throw new Error(result.reason || "AI tidak tersedia");
     }
 
+    // Normalize AI output: backfill non_labor and row_total if the LLM did not return them.
+    // The AI schema only requires { category, hours, rate, subtotal }; we add the new fields
+    // as frontend-only state without changing the server contract.
+    const aiData = result.data;
+
+    // Backfill Phase 2A charter identity fields from input when AI did not return them.
+    // This ensures renderCharter() always has project_title, budget_info, pm_name, etc.
+    if (aiData.charter) {
+      aiData.charter.project_title  = aiData.charter.project_title  || input.projectName;
+      aiData.charter.budget_info    = aiData.charter.budget_info    || input.budgetRange;
+      aiData.charter.pm_name        = aiData.charter.pm_name        || input.pmName        || "";
+      aiData.charter.methodology    = aiData.charter.methodology    || input.methodology   || "";
+      aiData.charter.start_date     = aiData.charter.start_date     || input.startDate     || "";
+      aiData.charter.finish_date    = aiData.charter.finish_date    || "";
+      aiData.charter.project_context = aiData.charter.project_context || input.projectContext || "";
+      if (!aiData.charter.success_criteria) {
+        const lines = (input.successCriteria || "").split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+        aiData.charter.success_criteria = lines;
+      }
+    }
+    if (Array.isArray(aiData.cost_estimate)) {
+      aiData.cost_estimate = aiData.cost_estimate.map((c) => {
+        const labor    = Math.max(0, Number(c.subtotal) || 0);
+        const nonLabor = Math.max(0, Number(c.non_labor) || 0);
+        return {
+          ...c,
+          subtotal:  labor,
+          non_labor: nonLabor,
+          row_total: labor + nonLabor,
+        };
+      });
+    }
+    // Build a fresh cost_summary so the tfoot renders correctly
+    if (!aiData.cost_summary) {
+      const costSubtotal = aiData.cost_estimate.reduce((s, c) => s + c.row_total, 0);
+      const pct = 10;
+      aiData.cost_summary = {
+        contingency_pct:     pct,
+        cost_subtotal:       costSubtotal,
+        contingency_reserve: Math.round(costSubtotal * pct / 100),
+        grand_total:         costSubtotal + Math.round(costSubtotal * pct / 100),
+      };
+    }
+
     currentMode = "ai";
-    currentDoc = result.data;
+    currentDoc = aiData;
     renderBadge("ai");
-    renderDocument(result.data, input);
+    renderDocument(aiData, input);
   } catch (err) {
     // Fallback ke template mode
     console.warn("[AI Fallback]", err.message);
@@ -1096,6 +1664,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-template")?.addEventListener("click", onGenerateTemplate);
   $("btn-ai")?.addEventListener("click", onGenerateAI);
   $("btn-print")?.addEventListener("click", onPrint);
+
+  // Contingency % input — fires updateCostSummary whenever the user changes the %
+  $("contingency-pct-input")?.addEventListener("input", updateCostSummary);
 
   // Tombol ekspor CSV
   $("export-charter")?.addEventListener("click", () => exportCSV("charter"));

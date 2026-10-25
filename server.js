@@ -118,7 +118,11 @@ function validateSchema(data) {
  * @returns {object} data yang sudah dibersihkan
  */
 function validateRequestBody(body) {
-  const { projectName, objective, duration, teamSize, category, budgetRange } = body || {};
+  const {
+    projectName, objective, duration, teamSize, category, budgetRange,
+    // Phase 2A optional fields — pass through if present, ignore if absent
+    startDate, pmName, methodology, keyDeliverables, successCriteria, projectContext,
+  } = body || {};
 
   if (!projectName || typeof projectName !== "string" || projectName.trim() === "") {
     throw new Error("Nama proyek wajib diisi");
@@ -146,19 +150,32 @@ function validateRequestBody(body) {
     throw new Error("Kisaran anggaran wajib diisi");
   }
 
+  // Sanitize optional string fields (accept only if non-empty strings; else undefined)
+  const optStr = (v, max) => (v && typeof v === "string" && v.trim() ? v.trim().slice(0, max) : undefined);
+
   return {
-    projectName: projectName.trim().slice(0, 200),
-    objective: objective.trim().slice(0, 1000),
-    duration: durationNum,
-    teamSize: teamSizeNum,
+    projectName:     projectName.trim().slice(0, 200),
+    objective:       objective.trim().slice(0, 1000),
+    duration:        durationNum,
+    teamSize:        teamSizeNum,
     category,
-    budgetRange: budgetRange.trim().slice(0, 200),
+    budgetRange:     budgetRange.trim().slice(0, 200),
+    // optional — undefined when not supplied, so JSON.stringify omits them
+    startDate:        optStr(startDate, 20),
+    pmName:           optStr(pmName, 200),
+    methodology:      optStr(methodology, 100),
+    keyDeliverables:  optStr(keyDeliverables, 1000),
+    successCriteria:  optStr(successCriteria, 1000),
+    projectContext:   optStr(projectContext, 1000),
   };
 }
 
 // ── Buat prompt untuk LLM ──────────────────────────────────────────────────
 function buildPrompt(data) {
-  const { projectName, objective, duration, teamSize, category, budgetRange } = data;
+  const {
+    projectName, objective, duration, teamSize, category, budgetRange,
+    startDate, pmName, methodology, keyDeliverables, successCriteria, projectContext,
+  } = data;
 
   const categoryLabels = {
     web: "Aplikasi Web",
@@ -166,6 +183,16 @@ function buildPrompt(data) {
     data_ai: "Data/AI",
     infrastructure: "Infrastruktur TI",
   };
+
+  // Build optional context lines — only include when the user supplied them
+  const optLines = [
+    startDate       && `- Tanggal Mulai: ${startDate}`,
+    pmName          && `- Project Manager: ${pmName}`,
+    methodology     && `- Metodologi: ${methodology}`,
+    keyDeliverables && `- Deliverable Utama yang Diharapkan:\n${keyDeliverables.split(/\r?\n/).filter(Boolean).map(l => `    • ${l}`).join("\n")}`,
+    successCriteria && `- Kriteria Keberhasilan:\n${successCriteria.split(/\r?\n/).filter(Boolean).map(l => `    • ${l}`).join("\n")}`,
+    projectContext  && `- Konteks & Fitur Utama:\n  ${projectContext}`,
+  ].filter(Boolean).join("\n");
 
   return `
 Kamu adalah konsultan manajemen proyek TI. Gunakan HANYA informasi dari input pengguna.
@@ -181,7 +208,7 @@ Input Proyek:
 - Ukuran Tim: ${teamSize} orang
 - Kategori: ${categoryLabels[category]}
 - Kisaran Anggaran: ${budgetRange}
-
+${optLines ? optLines + "\n" : ""}
 Skema JSON yang harus dikembalikan (tidak ada field lain):
 {
   "charter": {
@@ -205,6 +232,7 @@ Skema JSON yang harus dikembalikan (tidak ada field lain):
 }
 
 Pastikan:
+- charter.in_scope, out_of_scope, deliverables, dan stakeholders mencerminkan proyek "${projectName}" secara spesifik — bukan template generik.
 - WBS memiliki 3 level dan mencakup semua deliverable utama.
 - risk_register memiliki minimal 6 risiko, termasuk risiko keamanan dan kepatuhan.
 - cost_estimate menggunakan jam-orang × tarif per jam, semua nilai adalah estimasi.
