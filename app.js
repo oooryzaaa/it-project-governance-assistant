@@ -32,6 +32,8 @@ let currentInput = null;
  */
 let costEdited = false;
 
+let generationRequestId = 0;
+
 // ── DOM helpers ─────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -40,6 +42,29 @@ const el = (tag, cls, text) => {
   if (text !== undefined) e.textContent = text;
   return e;
 };
+
+function parseProjectDate(value) {
+  const match = typeof value === "string" && value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (date.getUTCFullYear() !== Number(match[1]) ||
+      date.getUTCMonth() !== Number(match[2]) - 1 ||
+      date.getUTCDate() !== Number(match[3])) return null;
+  return date;
+}
+
+function projectDateAtWeek(startDate, week) {
+  const date = parseProjectDate(startDate);
+  if (!date || !Number.isFinite(Number(week))) return null;
+  date.setUTCDate(date.getUTCDate() + Math.round(Number(week) * 7));
+  return date;
+}
+
+function formatProjectDate(date, month = "long") {
+  return date && Number.isFinite(date.getTime())
+    ? date.toLocaleDateString("id-ID", { day: "numeric", month, year: "numeric", timeZone: "UTC" })
+    : "";
+}
 
 // ── Template data per kategori ──────────────────────────────────────────────
 
@@ -261,13 +286,10 @@ function generateTemplate(input) {
 
     // Category-static milestones (with or without start date)
     if (startDate) {
-      const start = new Date(startDate);
-      const fmt = (d) => d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
       milestoneStrings = meta.wbsPhases.map((phase, i) => {
         const weekEnd = Math.round(((i + 1) / meta.wbsPhases.length) * duration);
-        const ms = new Date(start);
-        ms.setDate(ms.getDate() + weekEnd * 7);
-        return `${fmt(ms)}: ${phase} selesai`;
+        const milestoneDate = projectDateAtWeek(startDate, weekEnd);
+        return milestoneDate ? `${formatProjectDate(milestoneDate)}: ${phase} selesai` : `Minggu ${weekEnd}: ${phase} selesai`;
       });
     } else {
       milestoneStrings = meta.wbsPhases.map((phase, i) => {
@@ -281,12 +303,12 @@ function generateTemplate(input) {
   let startDateLabel  = "Belum ditentukan";
   let finishDateLabel = "Belum ditentukan";
   if (startDate) {
-    const start  = new Date(startDate);
-    const finish = new Date(start);
-    finish.setDate(finish.getDate() + duration * 7);
-    const fmt = (d) => d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
-    startDateLabel  = fmt(start);
-    finishDateLabel = fmt(finish);
+    const start = parseProjectDate(startDate);
+    const finish = projectDateAtWeek(startDate, duration);
+    if (start && finish) {
+      startDateLabel  = formatProjectDate(start);
+      finishDateLabel = formatProjectDate(finish);
+    }
   }
 
   // ── Domain-specific 6th stakeholder role ─────────────────────────────────
@@ -609,13 +631,10 @@ function buildDeliverableWBS(userDeliverables, duration) {
 function buildDeliverableMilestones(l1Phases, duration, startDate) {
   const count = l1Phases.length;
   if (startDate) {
-    const start = new Date(startDate);
-    const fmt = (d) => d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
     return l1Phases.map((phase, i) => {
       const weekEnd = Math.round(((i + 1) / count) * duration);
-      const ms = new Date(start);
-      ms.setDate(ms.getDate() + weekEnd * 7);
-      return `${fmt(ms)}: ${phase} selesai`;
+      const milestoneDate = projectDateAtWeek(startDate, weekEnd);
+      return milestoneDate ? `${formatProjectDate(milestoneDate)}: ${phase} selesai` : `Minggu ${weekEnd}: ${phase} selesai`;
     });
   }
   return l1Phases.map((phase, i) => {
@@ -1431,6 +1450,22 @@ function setLoading(loading) {
   if (spinner) spinner.classList.toggle("hidden", !loading);
 }
 
+function setCostEditingDisabled(disabled) {
+  document.querySelectorAll("#cost-tbody input, #contingency-pct-input").forEach((input) => {
+    input.disabled = disabled;
+  });
+}
+
+function clearAIGenerationState() {
+  $("ai-loading-banner")?.remove();
+  ["section-charter", "section-wbs", "section-risk", "section-cost", "section-assumptions", "section-gantt", "section-governance"].forEach((id) => {
+    const section = $(id);
+    if (section) section.style.opacity = "";
+  });
+  setCostEditingDisabled(false);
+  setLoading(false);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Phase 5 — WBS-based Gantt Chart
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1463,11 +1498,17 @@ function setLoading(loading) {
  *              startDate?, endDate?, assumption }
  */
 function buildGanttSchedule(wbs, input) {
-  const totalWeeks = Math.max(1, Number(input.duration) || 1);
-  const hasCalendarDates = !!(input.startDate && input.startDate.trim());
+  const requestedWeeks = Number(input?.duration);
+  const totalWeeks = Number.isInteger(requestedWeeks) && requestedWeeks >= 1 && requestedWeeks <= 520
+    ? requestedWeeks
+    : 1;
+  const originDate = parseProjectDate(input?.startDate);
+  const hasCalendarDates = !!originDate;
 
   // ── Extract L1 phases in order ───────────────────────────────────────────
-  const l1Phases = wbs.filter((w) => w.level === 1).map((w) => w.name);
+  const l1Phases = (Array.isArray(wbs) ? wbs : [])
+    .filter((w) => w && Number(w.level) === 1 && typeof w.name === "string" && w.name.trim())
+    .map((w) => w.name.trim());
 
   if (l1Phases.length === 0) return { tasks: [], startDate: null, projectEndWeek: totalWeeks, hasCalendarDates };
 
@@ -1493,10 +1534,10 @@ function buildGanttSchedule(wbs, input) {
 
   // Map phase index → duration in weeks
   const phaseDurationWeeks = l1Phases.map((_, idx) => {
-    if (idx === initiationIdx)                         return Math.max(1, Math.round(W_INIT * totalWeeks * 10) / 10);
-    if (hasTestingPhase  && idx === testingIdx)        return Math.max(1, Math.round(W_TEST * totalWeeks * 10) / 10);
-    if (hasClosingPhase  && idx === closingIdx)        return Math.max(1, Math.round(W_CLOSE * totalWeeks * 10) / 10);
-    return Math.max(1, Math.round(W_DEV_EACH * totalWeeks * 10) / 10);
+    if (idx === initiationIdx)                         return Math.max(0.1, Math.round(W_INIT * totalWeeks * 10) / 10);
+    if (hasTestingPhase  && idx === testingIdx)        return Math.max(0.1, Math.round(W_TEST * totalWeeks * 10) / 10);
+    if (hasClosingPhase  && idx === closingIdx)        return Math.max(0.1, Math.round(W_CLOSE * totalWeeks * 10) / 10);
+    return Math.max(0.1, Math.round(W_DEV_EACH * totalWeeks * 10) / 10);
   });
 
   // ── Schedule phases (with 15% dev-to-dev overlap) ────────────────────────
@@ -1526,7 +1567,7 @@ function buildGanttSchedule(wbs, input) {
     // Dev phases: first dev starts after init; subsequent devs overlap at OVERLAP_FACTOR
     let devCursor = endWeeks[initiationIdx];
     devIndices.forEach((idx, di) => {
-      startWeeks[idx] = (di === 0) ? devCursor : devCursor;
+      startWeeks[idx] = devCursor;
       endWeeks[idx]   = Math.min(totalWeeks, startWeeks[idx] + phaseDurationWeeks[idx]);
       // Next dev starts after OVERLAP_FACTOR of this dev's duration
       devCursor = startWeeks[idx] + phaseDurationWeeks[idx] * OVERLAP_FACTOR;
@@ -1563,31 +1604,30 @@ function buildGanttSchedule(wbs, input) {
   }
 
   // ── Convert weeks to calendar dates if startDate provided ────────────────
-  const originDate = hasCalendarDates ? new Date(input.startDate) : null;
-
   const weekToDate = (weeks) => {
     if (!originDate) return null;
-    const d = new Date(originDate);
-    // Use exact integer days (same formula as Charter: start + duration*7 days)
-    d.setDate(d.getDate() + Math.round(weeks * 7));
-    return d;
+    return projectDateAtWeek(input.startDate, weeks);
   };
 
   const fmtDate = (d) =>
-    d ? d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : null;
+    d ? formatProjectDate(d, "short") : null;
 
   // ── Build task objects ────────────────────────────────────────────────────
   const tasks = l1Phases.map((name, idx) => {
-    const sw  = Math.round(startWeeks[idx] * 10) / 10;
-    const ew  = Math.round(endWeeks[idx]   * 10) / 10;
-    const dur = Math.max(0.5, Math.round((ew - sw) * 10) / 10);
+    const rawStart = Math.round(startWeeks[idx] * 10) / 10;
+    const rawEnd = Math.round(endWeeks[idx] * 10) / 10;
+    const sw = Math.min(totalWeeks, Math.max(0, rawStart));
+    const ew = Math.min(totalWeeks, Math.max(sw, rawEnd));
+    const dur = Math.round((ew - sw) * 10) / 10;
 
     // Closing phase (last index) is the project milestone marker.
-    const isMilestone = (hasClosingPhase && idx === closingIdx);
+    const isMilestone = (idx === closingIdx && (hasClosingPhase || l1Phases.length === 1));
 
     // Scheduling assumption label
     let assumption;
-    if (idx === initiationIdx)
+    if (l1Phases.length === 1)
+      assumption = "Fase WBS tunggal; milestone penyelesaian berada pada akhir durasi proyek";
+    else if (idx === initiationIdx)
       assumption = `Estimasi: ${Math.round(W_INIT * 100)}% durasi total`;
     else if (hasTestingPhase && idx === testingIdx)
       assumption = `Estimasi: ${Math.round(W_TEST * 100)}% durasi total; dimulai setelah semua pengembangan selesai`;
@@ -1646,7 +1686,9 @@ function buildGanttSchedule(wbs, input) {
   tasks.forEach((t) => {
     if (t.endWeek > totalWeeks) t.endWeek = totalWeeks;
     if (t.startWeek > totalWeeks) t.startWeek = totalWeeks;
-    if (t.durationWeeks < 0) t.durationWeeks = 0;
+    t.startWeek = Math.max(0, t.startWeek);
+    t.endWeek = Math.max(t.startWeek, t.endWeek);
+    t.durationWeeks = Math.round((t.endWeek - t.startWeek) * 10) / 10;
   });
 
   return { tasks, projectEndWeek: totalWeeks, hasCalendarDates, originDate };
@@ -1885,30 +1927,30 @@ function renderGantt(ganttData, input) {
  * Gantt-derived schedule so Charter and Gantt show identical dates.
  *
  * Rules:
- *  - Only applies when startDate is provided (calendar dates exist).
  *  - Uses the Gantt task list (L1 phases only, excluding the buffer row).
+ *  - Uses calendar dates when available; otherwise uses relative week offsets.
  *  - Preserves the existing milestone string format:
  *      "4 Januari 2027: Penutupan Proyek selesai"
  *  - If Gantt has no tasks (empty WBS), milestone strings are left unchanged.
  *  - Does NOT invent calendar dates when startDate is absent (S1.C-13).
  */
 function syncCharterMilestonesToGantt(doc, ganttData) {
-  if (!ganttData || !ganttData.hasCalendarDates) return; // no calendar, leave as-is
+  if (!ganttData) return;
   if (!ganttData.tasks || ganttData.tasks.length === 0) return;
   if (!doc.charter) return;
-
-  const fmt = (d) =>
-    d ? d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" }) : null;
 
   // Work tasks only — exclude the synthetic buffer row (isBuffer === true)
   const workTasks = ganttData.tasks.filter((t) => !t.isBuffer);
 
   if (workTasks.length === 0) return;
 
-  // Map phase name → Gantt endDate
   const milestones = workTasks.map((t) => {
-    const dateStr = t.endDate ? fmt(t.endDate) : null;
-    return dateStr ? `${dateStr}: ${t.name} selesai` : null;
+    if (ganttData.hasCalendarDates) {
+      const dateStr = formatProjectDate(t.endDate);
+      return dateStr ? `${dateStr}: ${t.name} selesai` : null;
+    }
+    const week = Number(t.endWeek.toFixed(1)).toLocaleString("id-ID");
+    return `Minggu ${week}: ${t.name} selesai`;
   }).filter(Boolean);
 
   if (milestones.length > 0) {
@@ -1930,8 +1972,12 @@ function renderDocument(doc, input) {
   const ganttData = buildGanttSchedule(doc.wbs, input);
   doc._gantt = ganttData;
 
-  // S1.C-9/12/13: Synchronise Charter milestone dates to match Gantt dates.
-  // This is a no-op when startDate is absent (no calendar dates to sync).
+  if (ganttData.hasCalendarDates && ganttData.tasks.length > 0) {
+    const closingTask = ganttData.tasks.filter((task) => !task.isBuffer).slice(-1)[0];
+    if (closingTask?.endDate) doc.charter.finish_date = formatProjectDate(closingTask.endDate);
+  }
+
+  // Charter milestone dates/weeks are derived from the same schedule as Gantt.
   syncCharterMilestonesToGantt(doc, ganttData);
 
   renderCharter(doc.charter, input);
@@ -2179,6 +2225,16 @@ function renderCostEstimate(costs, summary) {
   const tbody = $("cost-tbody");
   if (!tbody) return;
 
+  const contingencyInput = $("contingency-pct-input");
+  const summaryPct = summary?.contingency_pct;
+  const initialPct = Number(summaryPct);
+  if (contingencyInput) {
+    contingencyInput.value = summaryPct !== null && summaryPct !== undefined &&
+      Number.isFinite(initialPct) && initialPct >= 0 && initialPct <= 100
+      ? String(initialPct)
+      : "10";
+  }
+
   const fmt = (n) => Math.max(0, Number(n) || 0).toLocaleString("id-ID");
 
   tbody.innerHTML = costs
@@ -2272,35 +2328,44 @@ function onCostEdit(e) {
 function parseBudgetIDR(text) {
   if (!text || typeof text !== "string") return { value: null, isRange: false, upperBound: null };
 
-  const t = text.trim().toLowerCase()
-    .replace(/\s+/g, " ")      // collapse whitespace
-    .replace(/rp\s*/g, "")     // strip currency prefix
-    .replace(/,/g, ".");       // normalise decimal/thousands separator
+  const t = text.trim().toLowerCase().replace(/\brp\s*/g, "").replace(/\s+/g, " ");
+  const unitPattern = "(juta|miliar|milyar|ribu|rb|jt|m)";
+  const numberPattern = "([\\d.,]+)";
 
-  // Detect range pattern: two numbers separated by –, -, ~, or s/d
-  // e.g. "80–100 juta" → [80, 100] + "juta"
+  const parseAmount = (raw, unit = "") => {
+    let normalized;
+    if (/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(raw)) {
+      normalized = raw.replace(/\./g, "").replace(",", ".");
+    } else if (/^\d+(?:,\d+)?$/.test(raw)) {
+      if (raw.includes(",") && (!unit || raw.split(",")[1].length === 3)) return null;
+      normalized = raw.replace(",", ".");
+    } else if (/^\d+(?:\.\d+)?$/.test(raw)) {
+      if (raw.includes(".") && !unit) return null;
+      normalized = raw;
+    } else {
+      return null;
+    }
+    const amount = Number(normalized) * multiplierFromUnit(unit);
+    return Number.isFinite(amount) && amount > 0 ? amount : null;
+  };
+
   const rangeMatch = t.match(
-    /^([\d.]+)\s*(?:–|-|~|s\/d)\s*([\d.]+)(?:\s*(juta|miliar|milyar|ribu|rb|m|jt))?/
+    new RegExp(`^${numberPattern}\\s*${unitPattern}?\\s*(?:–|-|~|s/d)\\s*${numberPattern}\\s*${unitPattern}?$`)
   );
   if (rangeMatch) {
-    const parseNum = (n, unit) => {
-      const base = parseFloat(n.replace(/\.(?=.*\.)/g, ""));  // strip non-final dots
-      return base * multiplierFromUnit(unit || "");
-    };
-    const lo = parseNum(rangeMatch[1], rangeMatch[3]);
-    const hi = parseNum(rangeMatch[2], rangeMatch[3]);
-    if (!isNaN(lo) && !isNaN(hi)) {
-      return { value: hi, isRange: true, upperBound: hi };
+    const lowerUnit = rangeMatch[2] || rangeMatch[4] || "";
+    const upperUnit = rangeMatch[4] || rangeMatch[2] || "";
+    const lower = parseAmount(rangeMatch[1], lowerUnit);
+    const upper = parseAmount(rangeMatch[3], upperUnit);
+    if (lower !== null && upper !== null && lower <= upper) {
+      return { value: upper, isRange: true, upperBound: upper };
     }
   }
 
-  // Single value with optional unit suffix
-  const singleMatch = t.match(/^([\d.]+)\s*(juta|miliar|milyar|ribu|rb|m|jt)?$/);
+  const singleMatch = t.match(new RegExp(`^${numberPattern}\\s*${unitPattern}?$`));
   if (singleMatch) {
-    const raw  = parseFloat(singleMatch[1].replace(/\.(?=.*\.)/g, ""));
-    const unit = singleMatch[2] || "";
-    const val  = raw * multiplierFromUnit(unit);
-    if (!isNaN(val) && val > 0) return { value: val, isRange: false, upperBound: val };
+    const value = parseAmount(singleMatch[1], singleMatch[2] || "");
+    if (value !== null) return { value, isRange: false, upperBound: value };
   }
 
   return { value: null, isRange: false, upperBound: null };
@@ -2730,6 +2795,8 @@ async function onGenerateTemplate() {
   const input = getFormData();
   if (!input) return;
 
+  generationRequestId += 1;
+  clearAIGenerationState();
   currentMode = "template";
   currentInput = input;
   renderBadge("template");
@@ -2764,12 +2831,9 @@ function normaliseAICharter(charter, input) {
 
   // S1.A-1: Compute finish_date when AI did not return it — identical formula
   // to Template Mode: start + duration * 7 days.
-  if (!charter.finish_date || charter.finish_date === "") {
+  if (typeof charter.finish_date !== "string" || !charter.finish_date.trim()) {
     if (input.startDate) {
-      const start  = new Date(input.startDate);
-      const finish = new Date(start);
-      finish.setDate(finish.getDate() + (Number(input.duration) || 0) * 7);
-      charter.finish_date = finish.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+      charter.finish_date = formatProjectDate(projectDateAtWeek(input.startDate, input.duration));
     } else {
       charter.finish_date = "";
     }
@@ -2869,6 +2933,7 @@ async function onGenerateAI() {
   const input = getFormData();
   if (!input) return;
 
+  const requestId = ++generationRequestId;
   currentInput = input;
 
   // S1.B-5: Mark existing output as stale while loading.
@@ -2884,7 +2949,9 @@ async function onGenerateAI() {
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
       </svg>
-      <span>Mengirim ke AI — dokumen lama sedang disembunyikan sementara…</span>`;
+      <span></span>`;
+    loadingBanner.querySelector("span").textContent =
+      `Memproses "${input.projectName}" dengan AI. Dokumen di bawah adalah hasil sebelumnya, bukan hasil permintaan ini.`;
     outputSection.prepend(loadingBanner);
     ["section-charter","section-wbs","section-risk","section-cost","section-assumptions","section-gantt","section-governance"].forEach(id => {
       const s = $(id);
@@ -2893,6 +2960,7 @@ async function onGenerateAI() {
   }
 
   setLoading(true);
+  setCostEditingDisabled(true);
   clearFallbackNotice();
 
   try {
@@ -2908,6 +2976,8 @@ async function onGenerateAI() {
     }
 
     const result = await resp.json();
+
+    if (requestId !== generationRequestId) return;
 
     if (result.fallback) {
       // Server mengembalikan sinyal fallback
@@ -2971,6 +3041,8 @@ async function onGenerateAI() {
     }
 
   } catch (err) {
+    if (requestId !== generationRequestId) return;
+
     // S1.B-5: Restore old sections on failure so user can still read previous doc
     ["section-charter","section-wbs","section-risk","section-cost","section-assumptions","section-gantt","section-governance"].forEach(id => {
       const s = $(id);
@@ -2988,14 +3060,12 @@ async function onGenerateAI() {
     costEdited = false;
     renderDocument(doc, input);
   } finally {
-    // S1.B-5: Always remove the loading banner and restore opacity
-    if (loadingBanner) loadingBanner.remove();
-    ["section-charter","section-wbs","section-risk","section-cost","section-assumptions","section-gantt","section-governance"].forEach(id => {
-      const s = $(id);
-      if (s) s.style.opacity = "";
-    });
-    setLoading(false);
-    $("output-section")?.scrollIntoView({ behavior: "smooth" });
+    if (requestId === generationRequestId) {
+      // S1.B-5: Always remove the loading banner and restore opacity
+      if (loadingBanner) loadingBanner.remove();
+      clearAIGenerationState();
+      $("output-section")?.scrollIntoView({ behavior: "smooth" });
+    }
   }
 }
 

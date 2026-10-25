@@ -886,7 +886,7 @@
         const navEl   = document.getElementById(navId);
         if (!section || !navEl) return;
         const visible = !section.classList.contains('hidden');
-        navEl.classList.toggle(activeClass, visible);
+        activeClass.split(' ').forEach(className => navEl.classList.toggle(className, visible));
         navEl.classList.toggle(inactiveTextClass, !visible);
         // Also update the number badge colour
         const badge = navEl.querySelector('span');

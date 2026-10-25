@@ -131,13 +131,13 @@ function validateRequestBody(body) {
     throw new Error("Tujuan proyek wajib diisi");
   }
 
-  const durationNum = parseInt(duration, 10);
-  if (isNaN(durationNum) || durationNum < 1 || durationNum > 520) {
+  const durationNum = (typeof duration === "number" || typeof duration === "string") ? Number(duration) : NaN;
+  if (!Number.isInteger(durationNum) || durationNum < 1 || durationNum > 520) {
     throw new Error("Durasi harus berupa angka antara 1 dan 520 minggu");
   }
 
-  const teamSizeNum = parseInt(teamSize, 10);
-  if (isNaN(teamSizeNum) || teamSizeNum < 1 || teamSizeNum > 500) {
+  const teamSizeNum = (typeof teamSize === "number" || typeof teamSize === "string") ? Number(teamSize) : NaN;
+  if (!Number.isInteger(teamSizeNum) || teamSizeNum < 1 || teamSizeNum > 500) {
     throw new Error("Ukuran tim harus berupa angka antara 1 dan 500");
   }
 
