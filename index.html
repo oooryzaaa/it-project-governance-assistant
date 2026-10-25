@@ -12,6 +12,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/gantt.css" />
 
   <style>
     /* ── Base ──────────────────────────────────────────────────────────── */
@@ -68,10 +69,6 @@
     .badge-template { background:#dbeafe; color:#1e40af; border:1px solid #bfdbfe; }
     .badge-ai       { background:#d1fae5; color:#065f46; border:1px solid #a7f3d0; }
 
-    /* ── Gantt chart ───────────────────────────────────────────────────── */
-    .gantt-scroll-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .gantt-scroll-wrap svg { display: block; }
-
     /* ── Print ─────────────────────────────────────────────────────────── */
     @media print {
       .no-print { display: none !important; }
@@ -82,15 +79,6 @@
       #output-section { display: block !important; }
       #output-section [data-workspace-module] { display: block !important; }
       #output-section [data-workspace-module="overview"] { display: none !important; }
-      /* Gantt: force full SVG width in print, prevent clipping */
-      .gantt-scroll-wrap { overflow: visible !important; }
-      .gantt-scroll-wrap svg { width: 100% !important; height: auto !important; }
-      #section-gantt { page-break-before: always; }
-      #section-gantt [data-gantt-task-id] { display: inline !important; }
-      #section-gantt [data-gantt-row-id] { display: table-row !important; }
-      #section-gantt [data-gantt-dependency-task-id] { display: inline !important; }
-      #section-gantt .gantt-scroll-wrap { break-inside: avoid; }
-      #section-gantt .table-wrap { overflow: visible !important; }
     }
 
     /* ── Responsive sidebar layout ─────────────────────────────────────── */

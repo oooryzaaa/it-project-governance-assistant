@@ -247,6 +247,49 @@ test("detailed Gantt tasks link to WBS, roll up child dates, and satisfy FS/SS d
   assert.ok(schedule.tasks.some((task) => task.dependencies?.some((dependency) => dependency.type === "SS")));
 });
 
+test("Gantt preserves explicit three-level WBS IDs and rolls summaries up to child boundaries", () => {
+  const wbs = [
+    { id: "1", level: 1, name: "Initiation" },
+    { id: "1.1", level: 2, name: "Requirements" },
+    { id: "1.1.1", level: 3, name: "Stakeholder interviews" },
+    { id: "1.1.2", level: 3, name: "Requirements specification" },
+    { id: "1.2", level: 2, name: "Architecture" },
+    { id: "1.2.1", level: 3, name: "Architecture design" },
+    { id: "2", level: 1, name: "Project closing" },
+    { id: "2.1", level: 2, name: "Handover" },
+    { id: "2.1.1", level: 3, name: "Operations guide" },
+  ];
+  const schedule = toPlain(api.buildGanttSchedule(wbs, {
+    ...kosPintarInput,
+    duration: 8,
+    startDate: "",
+  }));
+  const byId = new Map(schedule.tasks.map((task) => [task.wbsId, task]));
+
+  assert.equal(schedule.valid, true);
+  for (const id of wbs.map((row) => row.id)) assert.ok(byId.has(id), `WBS ${id} is scheduled`);
+  for (const parent of schedule.tasks.filter((task) => task.isSummary)) {
+    const children = schedule.tasks.filter((task) => task.parentId === parent.id);
+    assert.ok(children.length > 0);
+    assert.equal(parent.startWeek, Math.min(...children.map((task) => task.startWeek)));
+    assert.equal(parent.endWeek, Math.max(...children.map((task) => task.endWeek)));
+  }
+  assert.equal(byId.get("1.1.1").parentId, "1.1");
+  assert.equal(byId.get("1.1").parentId, "1");
+  assert.equal(schedule.hasCalendarDates, false);
+  assert.ok(schedule.tasks.every((task) => task.startDate === null && task.endDate === null));
+
+  const container = app.setElement("gantt-content");
+  api.renderGantt(schedule, {});
+  for (const id of ["1", "1.1", "1.1.1", "1.2", "1.2.1"]) {
+    assert.match(container.innerHTML, new RegExp(`data-gantt-task-id="${id}"`));
+    assert.match(container.innerHTML, new RegExp(`data-gantt-row-id="${id}"`));
+  }
+  assert.match(container.innerHTML, /gantt-summary-bar/);
+  assert.match(container.innerHTML, /aria-expanded="true"/);
+  assert.doesNotMatch(container.innerHTML, /style="display:none"/);
+});
+
 test("dependency scheduler rejects missing references, cycles, and horizon overflow", () => {
   const knownWbsIds = new Set(["1", "2"]);
   const invalidReference = api.validateGanttDependencies([
@@ -588,8 +631,10 @@ test("CSV export serializes canonical data without requiring rendered output sec
       if (section === "charter") assert.match(csv, /"Nama Proyek","Kos Pintar"/);
       if (section === "gantt") {
         assert.match(csv, /"Finish Date \(exclusive\)"/);
+        assert.match(csv, /"Parent WBS ID"/);
+        assert.match(csv, /"1\.1\.1"/);
         assert.match(csv, /"Dependency Type"/);
-        assert.match(csv, /"BUFFER","Schedule Buffer/);
+        assert.match(csv, /"BUFFER","","Schedule Buffer/);
         assert.match(csv, /belum disetujui/);
       }
     });

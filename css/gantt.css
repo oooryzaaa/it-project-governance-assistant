@@ -1,0 +1,83 @@
+.gantt-scroll-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.gantt-scroll-wrap svg {
+  display: block;
+  min-width: 1180px;
+}
+
+.gantt-summary-bar {
+  stroke: #0f2044;
+  stroke-width: 1.5;
+  opacity: .96;
+}
+
+.gantt-task-bar {
+  stroke: rgba(15, 32, 68, .18);
+  stroke-width: .75;
+  opacity: .88;
+}
+
+.gantt-label {
+  dominant-baseline: middle;
+}
+
+.gantt-detail-table {
+  min-width: 1050px;
+}
+
+.gantt-summary-row {
+  font-weight: 600;
+  background: #f1f5f9 !important;
+}
+
+.gantt-toggle {
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: .25rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.gantt-toggle:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+@media print {
+  .gantt-scroll-wrap {
+    overflow: visible !important;
+    break-inside: avoid;
+  }
+
+  .gantt-scroll-wrap svg {
+    width: 100% !important;
+    height: auto !important;
+    min-width: 0 !important;
+  }
+
+  #section-gantt {
+    page-break-before: always;
+  }
+
+  #section-gantt [data-gantt-task-id],
+  #section-gantt [data-gantt-dependency-task-id] {
+    display: inline !important;
+  }
+
+  #section-gantt [data-gantt-row-id] {
+    display: table-row !important;
+  }
+
+  #section-gantt .table-wrap {
+    overflow: visible !important;
+  }
+}

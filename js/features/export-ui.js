@@ -73,6 +73,7 @@ function exportCSV(section) {
     filename = "gantt_schedule.csv";
     rows = [[
       "WBS ID",
+      "Parent WBS ID",
       "Task",
       "Level",
       "Start Date (inclusive)",
@@ -83,7 +84,7 @@ function exportCSV(section) {
       "Lag/Lead (weeks)",
       "Schedule Basis",
     ]];
-    rows.push(["Convention", "Start Date is inclusive; Finish Date is exclusive at start + requested duration. System estimates are not approved project baselines.", "", "", "", "", "", "", "", ""]);
+    rows.push(["Convention", "", "Start Date is inclusive; Finish Date is exclusive at start + requested duration. System estimates are not approved project baselines.", "", "", "", "", "", "", "", ""]);
     for (const task of currentDoc._gantt?.tasks || []) {
       const predecessorNames = (task.dependencies || []).map((dependency) => {
         const predecessor = currentDoc._gantt.tasks.find((candidate) => candidate.id === dependency.predecessorId);
@@ -91,6 +92,7 @@ function exportCSV(section) {
       }).join("; ");
       rows.push([
         task.isBuffer ? "BUFFER" : task.wbsId || task.id,
+        task.parentId || "",
         task.name,
         task.level || "",
         task.startDateStr || `Week ${task.startWeek}`,

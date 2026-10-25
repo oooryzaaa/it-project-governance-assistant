@@ -10,9 +10,10 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (utils) {
   const { parseProjectDate, projectDateAtWeek, formatProjectDate } = utils;
 /**
- * buildGanttSchedule(wbs, input)
+ * buildPhaseSchedule(wbs, input)
  *
- * Derives a Gantt schedule from the WBS L1 phases and the Charter date/duration.
+ * Creates the existing deterministic timeline for WBS Level 1 phases. Child
+ * activities are assigned within these phase boundaries by buildGanttSchedule.
  *
  * Algorithm:
  *  1. Extract L1 phases from the WBS array (level === 1 items).
@@ -370,6 +371,11 @@ function scheduleGanttTasks(tasks, projectEndWeek, knownWbsIds) {
   return { valid: true, errors: [], tasks: result };
 }
 
+/**
+ * Build scheduled tasks for every valid WBS row (Levels 1–3). Level 1 phase
+ * dates retain the established weighting/overlap rules; child task dates are
+ * divided deterministically and summary rows roll up from their children.
+ */
 function buildGanttSchedule(wbs, input) {
   const rows = Array.isArray(wbs) ? wbs : [];
   const validRows = [];
@@ -608,6 +614,7 @@ function buildGanttSchedule(wbs, input) {
   const byId = new Map(scheduled.tasks.map((task) => [task.id, task]));
   for (const row of validRows.slice().reverse()) {
     const task = byId.get(row.id);
+    if (task) task.isSummary = row.children.length > 0;
     if (!task || !row.children.length) continue;
     const children = row.children.map((child) => byId.get(child.id)).filter(Boolean);
     if (!children.length) continue;
