@@ -15,9 +15,14 @@
     generationStatus: "idle",
     pendingRequestIdentity: 0,
     costEdited: false,
-    activeUiModule: "workspace",
+    activeUiModule: "overview",
     mobileNavigationOpen: false,
+    listeners: new Set(),
   };
+
+  function notify(change) {
+    for (const listener of state.listeners) listener(change);
+  }
 
   return Object.freeze({
     getLastAcceptedInput() {
@@ -25,12 +30,24 @@
     },
     setLastAcceptedInput(input) {
       state.lastAcceptedInput = input;
+      notify({ type: "input", input });
     },
     getDocument() {
       return state.document;
     },
     setDocument(document) {
       state.document = document;
+      notify({ type: "document", document });
+    },
+    notifyDocumentUpdated() {
+      notify({ type: "document-updated", document: state.document });
+    },
+    subscribe(listener) {
+      if (typeof listener !== "function") {
+        throw new TypeError("Project store listener must be a function");
+      }
+      state.listeners.add(listener);
+      return () => state.listeners.delete(listener);
     },
     getGenerationMode() {
       return state.generationMode;
@@ -86,12 +103,14 @@
         throw new TypeError("Active UI module must be a non-empty string");
       }
       state.activeUiModule = moduleId;
+      notify({ type: "active-module", moduleId });
     },
     isMobileNavigationOpen() {
       return state.mobileNavigationOpen;
     },
     setMobileNavigationOpen(open) {
       state.mobileNavigationOpen = Boolean(open);
+      notify({ type: "mobile-navigation", open: state.mobileNavigationOpen });
     },
   });
 });

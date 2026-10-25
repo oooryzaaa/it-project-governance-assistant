@@ -80,6 +80,8 @@
       #app-header { background: #0f2044 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .section-reveal { animation: none; }
       #output-section { display: block !important; }
+      #output-section [data-workspace-module] { display: block !important; }
+      #output-section [data-workspace-module="overview"] { display: none !important; }
       /* Gantt: force full SVG width in print, prevent clipping */
       .gantt-scroll-wrap { overflow: visible !important; }
       .gantt-scroll-wrap svg { width: 100% !important; height: auto !important; }
@@ -95,6 +97,35 @@
     @media (min-width: 1024px) {
       .app-layout { display: grid; grid-template-columns: 280px 1fr; gap: 0; min-height: calc(100vh - 72px); }
       .sidebar { border-right: 1px solid #e2e8f0; position: sticky; top: 72px; height: calc(100vh - 72px); overflow-y: auto; }
+    }
+    .sidebar.mobile-open {
+      display: block !important;
+      position: fixed;
+      z-index: 60;
+      top: 72px;
+      bottom: 0;
+      left: 0;
+      width: min(18rem, 85vw);
+      overflow-y: auto;
+      box-shadow: 0 12px 32px rgba(15, 32, 68, .22);
+    }
+    #nav-backdrop {
+      position: fixed;
+      inset: 72px 0 0;
+      z-index: 55;
+      background: rgba(15, 32, 68, .42);
+    }
+    [data-workspace-module]:focus, #section-form:focus {
+      outline: 2px solid #2563eb;
+      outline-offset: 3px;
+    }
+    .sidebar a:focus-visible, #mobile-nav-toggle:focus-visible, #nav-backdrop:focus-visible {
+      outline: 2px solid #2563eb;
+      outline-offset: 2px;
+    }
+    @media (min-width: 1024px) {
+      #nav-backdrop { display: none !important; }
+      .sidebar.mobile-open { position: sticky; width: auto; box-shadow: none; }
     }
   </style>
 </head>
@@ -123,6 +154,11 @@
 
     <!-- Right cluster -->
     <div class="flex items-center gap-3 shrink-0">
+      <button id="mobile-nav-toggle" type="button" class="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg text-white hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white" aria-label="Buka navigasi dokumen" aria-controls="workspace-sidebar" aria-expanded="false">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
       <!-- Mode badge -->
       <span id="mode-badge"
         class="badge-template inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
@@ -147,61 +183,68 @@
 <div class="app-layout max-w-screen-xl mx-auto">
 
   <!-- ── Sidebar (desktop) ─────────────────────────────────────────────── -->
-  <aside class="sidebar no-print bg-white hidden lg:block py-6 px-4" aria-label="Navigasi dokumen">
+  <aside id="workspace-sidebar" class="sidebar no-print bg-white hidden lg:block py-6 px-4" aria-label="Navigasi dokumen">
     <p class="text-[11px] font-semibold uppercase tracking-widest text-slate-400 mb-3 px-2">Dokumen</p>
     <nav>
       <ul class="space-y-0.5" id="sidebar-nav">
         <li>
-          <a href="#section-form"
+          <a id="nav-input" href="#section-form"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-700 transition group">
             <span class="w-6 h-6 rounded-md bg-blue-100 text-blue-600 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition">I</span>
             Input Proyek
           </a>
         </li>
         <li>
-          <a href="#section-charter"
+          <a href="#overview" data-workspace-link="overview" id="nav-overview"
+            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group">
+            <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold">O</span>
+            Overview
+          </a>
+        </li>
+        <li>
+          <a href="#section-charter" data-workspace-link="charter"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-charter">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition">1</span>
             Project Charter
           </a>
         </li>
         <li>
-          <a href="#section-wbs"
+          <a href="#section-wbs" data-workspace-link="wbs"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-wbs">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition">2</span>
             WBS
           </a>
         </li>
         <li>
-          <a href="#section-risk"
+          <a href="#section-risk" data-workspace-link="risk"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-risk">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition">3</span>
             Risk Register
           </a>
         </li>
         <li>
-          <a href="#section-cost"
+          <a href="#section-cost" data-workspace-link="cost"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-cost">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition">4</span>
             Estimasi Biaya
           </a>
         </li>
         <li>
-          <a href="#section-assumptions"
+          <a href="#section-assumptions" data-workspace-link="assumptions"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-assumptions">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-blue-600 group-hover:text-white transition">5</span>
             Asumsi
           </a>
         </li>
         <li>
-          <a href="#section-gantt"
+          <a href="#section-gantt" data-workspace-link="gantt"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-gantt">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-indigo-600 group-hover:text-white transition">6</span>
             Gantt Chart
           </a>
         </li>
         <li>
-          <a href="#section-governance"
+          <a href="#section-governance" data-workspace-link="governance"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group" id="nav-governance">
             <span class="w-6 h-6 rounded-md bg-slate-100 text-slate-400 flex items-center justify-center shrink-0 text-xs font-bold group-hover:bg-purple-600 group-hover:text-white transition">G</span>
             Tinjauan COBIT
@@ -219,6 +262,7 @@
       </p>
     </div>
   </aside>
+  <button id="nav-backdrop" type="button" class="hidden" aria-label="Tutup navigasi dokumen"></button>
 
   <!-- ── Main workspace ───────────────────────────────────────────────── -->
   <main class="min-w-0 py-6 px-4 sm:px-6 space-y-6">
@@ -237,7 +281,7 @@
     <!-- ════════════════════════════════════════════════════════════════ -->
     <!-- FORM INPUT                                                       -->
     <!-- ════════════════════════════════════════════════════════════════ -->
-    <section id="section-form"
+    <section id="section-form" tabindex="-1"
       class="card-accent accent-navy bg-white rounded-2xl shadow-sm border border-slate-200 no-print"
       aria-labelledby="form-heading">
 
@@ -577,8 +621,19 @@
     <!-- ════════════════════════════════════════════════════════════════ -->
     <div id="output-section" class="space-y-6">
 
+      <section id="section-overview" data-workspace-module="overview"
+        class="hidden section-reveal card-accent accent-navy bg-white rounded-2xl shadow-sm border border-slate-200"
+        aria-labelledby="overview" aria-hidden="true">
+        <div class="px-6 pt-6 pb-4 border-b border-slate-100">
+          <h2 id="overview" class="text-base font-bold text-slate-800">Overview Proyek</h2>
+          <p class="mt-1 text-xs text-slate-500">Ringkasan berdasarkan dokumen proyek yang dihasilkan dan nilai biaya terkini.</p>
+        </div>
+        <div id="overview-content" class="px-6 py-5"></div>
+      </section>
+
       <!-- ── 1 · PROJECT CHARTER ──────────────────────────────────────── -->
       <section id="section-charter"
+        data-workspace-module="charter"
         class="hidden section-reveal card-accent accent-blue bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="charter-heading">
         <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
@@ -600,6 +655,7 @@
 
       <!-- ── 2 · WBS ───────────────────────────────────────────────────── -->
       <section id="section-wbs"
+        data-workspace-module="wbs"
         class="hidden section-reveal card-accent accent-blue bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="wbs-heading">
         <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
@@ -637,6 +693,7 @@
 
       <!-- ── 3 · RISK REGISTER ─────────────────────────────────────────── -->
       <section id="section-risk"
+        data-workspace-module="risk"
         class="hidden section-reveal card-accent accent-red bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="risk-heading">
         <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
@@ -673,6 +730,7 @@
 
       <!-- ── 4 · COST ESTIMATE ─────────────────────────────────────────── -->
       <section id="section-cost"
+        data-workspace-module="cost"
         class="hidden section-reveal card-accent accent-green bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="cost-heading">
         <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
@@ -748,6 +806,7 @@
 
       <!-- ── 5 · ASUMSI ────────────────────────────────────────────────── -->
       <section id="section-assumptions"
+        data-workspace-module="assumptions"
         class="hidden section-reveal card-accent accent-amber bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="assumptions-heading">
         <div class="px-6 pt-6 pb-4 border-b border-slate-100">
@@ -761,6 +820,7 @@
 
       <!-- ── 6 · GANTT CHART ──────────────────────────────────────────────── -->
       <section id="section-gantt"
+        data-workspace-module="gantt"
         class="hidden section-reveal card-accent accent-navy bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="gantt-heading">
         <div class="flex items-center justify-between gap-3 px-6 pt-6 pb-4 border-b border-slate-100">
@@ -779,6 +839,7 @@
 
       <!-- ── G · GOVERNANCE REVIEW ─────────────────────────────────────── -->
       <section id="section-governance"
+        data-workspace-module="governance"
         class="hidden section-reveal card-accent accent-purple bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="governance-heading">
         <div class="flex items-center justify-between px-6 pt-6 pb-4 border-b border-slate-100">
@@ -871,54 +932,23 @@
 <!-- Classic scripts preserve both HTTP and file:// Template Mode compatibility. -->
 <script src="js/core/utils.js"></script>
 <script src="js/core/project-store.js"></script>
+<script src="js/features/risks.js"></script>
+<script src="js/features/template.js"></script>
 <!-- cobit-data.js must load before app.js -->
 <script src="cobit-data.js"></script>
+<script src="js/features/cobit.js"></script>
+<script src="js/features/gantt-schedule.js"></script>
+<script src="js/features/cost.js"></script>
+<script src="js/features/ai-normalization.js"></script>
+<script src="js/features/document-renderers.js"></script>
+<script src="js/features/gantt-ui.js"></script>
+<script src="js/features/cost-ui.js"></script>
+<script src="js/features/assumptions-ui.js"></script>
+<script src="js/features/governance-ui.js"></script>
+<script src="js/features/status-ui.js"></script>
+<script src="js/features/export-ui.js"></script>
+<script src="js/features/workspace-ui.js"></script>
 <script src="app.js"></script>
-
-<!-- Sidebar nav activation after content renders -->
-<script>
-  // Activate sidebar nav links when sections become visible
-  (function () {
-    const navMap = {
-      'section-charter':    'nav-charter',
-      'section-wbs':        'nav-wbs',
-      'section-risk':       'nav-risk',
-      'section-cost':       'nav-cost',
-      'section-assumptions':'nav-assumptions',
-      'section-gantt':      'nav-gantt',
-      'section-governance': 'nav-governance',
-    };
-    const activeClass = 'bg-blue-50 text-blue-700 font-semibold';
-    const inactiveTextClass = 'text-slate-400';
-
-    function updateNav() {
-      Object.entries(navMap).forEach(([sectionId, navId]) => {
-        const section = document.getElementById(sectionId);
-        const navEl   = document.getElementById(navId);
-        if (!section || !navEl) return;
-        const visible = !section.classList.contains('hidden');
-        activeClass.split(' ').forEach(className => navEl.classList.toggle(className, visible));
-        navEl.classList.toggle(inactiveTextClass, !visible);
-        // Also update the number badge colour
-        const badge = navEl.querySelector('span');
-        if (badge) {
-          badge.style.background = visible ? '#2563eb' : '';
-          badge.style.color      = visible ? '#fff'    : '';
-        }
-      });
-    }
-
-    // Observe hidden class changes via MutationObserver
-    const observer = new MutationObserver(updateNav);
-    Object.keys(navMap).forEach(id => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el, { attributes: true, attributeFilter: ['class'] });
-    });
-
-    // Initial state
-    document.addEventListener('DOMContentLoaded', updateNav);
-  }());
-</script>
 
 </body>
 </html>

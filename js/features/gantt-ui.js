@@ -1,0 +1,362 @@
+"use strict";
+
+(function (root, factory) {
+  const feature = factory(root);
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = feature;
+  } else {
+    root.GovPlanGanttUI = feature;
+  }
+})(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
+  const { $, escHtml } = root.GovPlanUtils;
+function renderGantt(ganttData, input) {
+  const container = $("gantt-content");
+  if (!container) return;
+
+  const { tasks, projectEndWeek, hasCalendarDates, originDate } = ganttData;
+
+  if (!tasks || tasks.length === 0) {
+    const reason = (ganttData.errors || []).join(" ");
+    container.innerHTML = `<p class="text-slate-400 italic text-sm py-4">${escHtml(reason || "Gantt tidak tersedia untuk dokumen ini.")}</p>`;
+    return;
+  }
+
+  // ── Layout constants ─────────────────────────────────────────────────────
+  const LABEL_W    = 280;   // px — WBS ID and task label column
+  const ROW_H      = 34;    // px — row height
+  const BAR_H      = 20;    // px — bar height within row
+  const BAR_PAD_V  = (ROW_H - BAR_H) / 2;
+  const HEADER_H   = 38;    // px — time axis header height
+  const useMonthTicks = projectEndWeek > 12;
+  const CHART_W    = 700;   // px — timeline draw area (scrollable)
+  const SVG_W      = LABEL_W + CHART_W;
+  const SVG_H      = HEADER_H + tasks.length * ROW_H + 20; // +20 bottom pad
+
+  const totalW = projectEndWeek;
+
+  // Week → px
+  const xOf = (week) => LABEL_W + (week / totalW) * CHART_W;
+
+  // Colour palette per structural role
+  const barColor = (t, idx) => {
+    if (t.isBuffer)                                       return "#94a3b8"; // slate-400 — buffer
+    if (t.isMilestone)                                    return "#7c3aed"; // purple
+    const name = t.name.toLowerCase();
+    if (name.includes("inisiasi") || name.includes("perencanaan")) return "#1e40af"; // blue
+    if (name.includes("pengujian") || name.includes("qa"))         return "#dc2626"; // red
+    if (name.includes("penutupan") || name.includes("closing"))    return "#475569"; // slate
+    // Pengembangan — cycle through teal shades
+    const devColors = ["#0d9488", "#0891b2", "#047857", "#0369a1", "#065f46"];
+    return devColors[idx % devColors.length];
+  };
+
+  // Projects over 12 weeks use calendar-month ticks; shorter projects use weeks.
+  const ticks = [];
+  if (useMonthTicks && hasCalendarDates && originDate) {
+    ticks.push(0);
+    const monthCursor = new Date(Date.UTC(originDate.getUTCFullYear(), originDate.getUTCMonth() + 1, 1));
+    while ((monthCursor - originDate) / (7 * 24 * 60 * 60 * 1000) < totalW) {
+      ticks.push((monthCursor - originDate) / (7 * 24 * 60 * 60 * 1000));
+      monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1);
+    }
+    if (ticks.length > 1 && totalW - ticks[ticks.length - 1] < 0.75) ticks.pop();
+    ticks.push(totalW);
+  } else {
+    const tickInterval = useMonthTicks ? 4 : 1;
+    for (let week = 0; week <= totalW; week += tickInterval) ticks.push(week);
+    if (ticks[ticks.length - 1] < totalW) ticks.push(totalW);
+  }
+
+  // ── Generate tick labels ──────────────────────────────────────────────────
+  const tickLabel = (w) => {
+    if (useMonthTicks && hasCalendarDates && originDate) {
+      const d = new Date(originDate);
+      d.setUTCDate(d.getUTCDate() + Math.round(w * 7));
+      return d.toLocaleDateString("id-ID", { month: "short", year: "numeric", timeZone: "UTC" });
+    }
+    if (hasCalendarDates && originDate) {
+      const d = new Date(originDate);
+      d.setUTCDate(d.getUTCDate() + Math.round(w * 7));
+      return d.toLocaleDateString("id-ID", { day: "numeric", month: "short", timeZone: "UTC" });
+    }
+    return useMonthTicks ? `Bulan ${Math.floor(w / 4) + 1}` : `Minggu ${w}`;
+  };
+
+  // ── Build SVG rows ────────────────────────────────────────────────────────
+  const rowsSVG = tasks.map((t, idx) => {
+    const y       = HEADER_H + idx * ROW_H;
+    const barX    = xOf(t.startWeek);
+    const barW    = Math.max(4, xOf(t.endWeek) - xOf(t.startWeek));
+    const midY    = y + BAR_PAD_V + BAR_H / 2;
+    const color   = barColor(t, idx);
+
+    // Background alternating stripe
+    const stripe = idx % 2 === 0
+      ? `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="#f8fafc"/>`
+      : `<rect x="0" y="${y}" width="${SVG_W}" height="${ROW_H}" fill="#ffffff"/>`;
+
+    // Label (truncated at LABEL_W - 12 px)
+    const indent = Math.max(0, Number(t.level) - 1) * 12;
+    const labelId = `<text x="8" y="${midY + 4.5}" font-family="ui-monospace,monospace"
+        font-size="10" fill="#64748b">${escHtml(t.isBuffer ? "—" : t.wbsId || t.id)}</text>`;
+    const label = `<text x="${58 + indent}" y="${midY + 4.5}" font-family="Inter,system-ui,sans-serif"
+        font-size="11" fill="#334155" class="gantt-label">${escHtml(t.name.length > 27 ? t.name.slice(0, 25) + "…" : t.name)}</text>`;
+    const parentAttr = t.parentId ? escHtml(t.parentId) : "";
+    const hidden = Number(t.level) > 1 ? ' style="display:none"' : "";
+
+    let barEl;
+    if (t.isBuffer) {
+      // Schedule Buffer: hatched grey bar to distinguish from work
+      barEl = `
+        <rect x="${barX}" y="${y + BAR_PAD_V}" width="${barW}" height="${BAR_H}"
+          rx="4" ry="4" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 2"/>
+        <text x="${barX + barW + 5}" y="${midY + 4}" font-family="Inter,system-ui,sans-serif"
+          font-size="10" fill="#94a3b8" font-style="italic">${t.durationWeeks}w float</text>`;
+    } else if (t.isMilestone) {
+      // Closing phase: draw the activity bar + a milestone diamond pinned at project end (endWeek = totalWeeks)
+      const DS = 9; // diamond half-size
+      const diamondX = Math.min(xOf(t.endWeek), LABEL_W + CHART_W - DS - 2);
+      barEl = `
+        <rect x="${barX}" y="${y + BAR_PAD_V}" width="${barW}" height="${BAR_H}"
+          rx="4" ry="4" fill="${color}" opacity="0.55"/>
+        <polygon points="${diamondX},${midY - DS} ${diamondX + DS},${midY} ${diamondX},${midY + DS} ${diamondX - DS},${midY}"
+          fill="${color}" opacity="0.95"/>
+        <text x="${diamondX + DS + 4}" y="${midY + 4}" font-family="Inter,system-ui,sans-serif"
+          font-size="10" fill="${color}" font-weight="600">Milestone</text>`;
+    } else {
+      // Standard work bar
+      barEl = `
+        <rect x="${barX}" y="${y + BAR_PAD_V}" width="${barW}" height="${BAR_H}"
+          rx="4" ry="4" fill="${color}" opacity="0.88"/>
+        <text x="${barX + barW + 5}" y="${midY + 4}" font-family="Inter,system-ui,sans-serif"
+          font-size="10" fill="#64748b">${t.durationWeeks}w</text>`;
+    }
+
+    // Vertical separator after label column
+    const sep = `<line x1="${LABEL_W}" y1="${y}" x2="${LABEL_W}" y2="${y + ROW_H}" stroke="#e2e8f0" stroke-width="1"/>`;
+
+    return `<g data-gantt-task-id="${escHtml(t.id)}" data-gantt-parent-id="${parentAttr}"${hidden}>${stripe}${labelId}${label}${sep}${barEl}</g>`;
+  }).join("\n");
+
+  const rowIndex = new Map(tasks.map((task, index) => [task.id, index]));
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const dependenciesSVG = tasks.flatMap((task) =>
+    (task.dependencies || []).map((dependency) => {
+      const predecessorIndex = rowIndex.get(dependency.predecessorId);
+      const taskIndex = rowIndex.get(task.id);
+      const predecessor = taskById.get(dependency.predecessorId);
+      if (predecessorIndex === undefined || taskIndex === undefined || !predecessor) return "";
+      const sourceWeek = dependency.type === "FS" ? predecessor.endWeek : predecessor.startWeek;
+      const x1 = xOf(sourceWeek + dependency.lagWeeks);
+      const y1 = HEADER_H + predecessorIndex * ROW_H + ROW_H / 2;
+      const x2 = xOf(task.startWeek);
+      const y2 = HEADER_H + taskIndex * ROW_H + ROW_H / 2;
+      const hidden = Number(task.level) > 1 ? ' style="display:none"' : "";
+      return `<g data-gantt-dependency-task-id="${escHtml(task.id)}"${hidden}>
+        <path d="M ${x1} ${y1} H ${Math.max(x1 + 4, x2 - 5)} V ${y2} H ${x2 - 2}"
+          fill="none" stroke="#64748b" stroke-width="1.2" stroke-dasharray="${dependency.type === "SS" ? "3 2" : "none"}"
+          marker-end="url(#gantt-arrow)"><title>${escHtml(dependency.type)} ${escHtml(dependency.predecessorId)} → ${escHtml(task.id)}; lag/lead ${dependency.lagWeeks} minggu</title></path>
+      </g>`;
+    })
+  ).join("\n");
+
+  // ── Time axis ─────────────────────────────────────────────────────────────
+  const ticksSVG = ticks.map((w) => {
+    const x = xOf(w);
+    const lbl = tickLabel(w);
+    return `
+      <line x1="${x}" y1="${HEADER_H - 6}" x2="${x}" y2="${SVG_H - 20}" stroke="#e2e8f0" stroke-width="1"/>
+      <text x="${x}" y="${HEADER_H - 10}" text-anchor="middle" font-family="Inter,system-ui,sans-serif"
+        font-size="10" fill="#94a3b8">${lbl}</text>`;
+  }).join("\n");
+
+  // Axis baseline
+  const axisLine = `<line x1="${LABEL_W}" y1="${HEADER_H}" x2="${SVG_W}" y2="${HEADER_H}" stroke="#cbd5e1" stroke-width="1.5"/>`;
+
+  // ── Legend ────────────────────────────────────────────────────────────────
+  const legendSVG = `
+    <rect x="${LABEL_W + 8}" y="6" width="14" height="10" rx="2" fill="#0d9488" opacity="0.88"/>
+    <text x="${LABEL_W + 26}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">Aktivitas</text>
+    <polygon points="${LABEL_W + 110},11 ${LABEL_W + 119},6 ${LABEL_W + 128},11 ${LABEL_W + 119},16"
+      fill="#7c3aed" opacity="0.9"/>
+    <text x="${LABEL_W + 134}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">Milestone</text>
+    <rect x="${LABEL_W + 215}" y="6" width="14" height="10" rx="2" fill="#e2e8f0" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 2"/>
+    <text x="${LABEL_W + 234}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#94a3b8" font-style="italic">Buffer</text>
+    <line x1="${LABEL_W + 320}" y1="11" x2="${LABEL_W + 344}" y2="11" stroke="#64748b" stroke-width="1.2"/>
+    <text x="${LABEL_W + 349}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">FS</text>
+    <line x1="${LABEL_W + 379}" y1="11" x2="${LABEL_W + 403}" y2="11" stroke="#64748b" stroke-width="1.2" stroke-dasharray="3 2"/>
+    <text x="${LABEL_W + 408}" y="15.5" font-family="Inter,system-ui,sans-serif" font-size="10" fill="#64748b">SS</text>`;
+
+  // ── Compose SVG ───────────────────────────────────────────────────────────
+  const svgContent = `
+    <defs>
+      <marker id="gantt-arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+        <path d="M0,0 L7,3.5 L0,7 z" fill="#64748b"/>
+      </marker>
+    </defs>
+    ${legendSVG}
+    ${ticksSVG}
+    ${axisLine}
+    ${rowsSVG}
+    ${dependenciesSVG}
+    <line x1="${LABEL_W}" y1="0" x2="${LABEL_W}" y2="${SVG_H}" stroke="#e2e8f0" stroke-width="1"/>`;
+
+  const disclaimer = hasCalendarDates
+    ? `Jadwal di atas adalah <strong>estimasi sistem, belum disetujui</strong>. Start Date inklusif; Finish Date eksklusif (tanggal mulai + durasi).`
+    : `Tanggal mulai proyek belum ditentukan. Jadwal menggunakan <strong>minggu relatif</strong> tanpa membuat tanggal kalender. Estimasi sistem belum disetujui.`;
+  const scheduleWarnings = (ganttData.errors || []).length
+    ? `<div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900" role="status">
+        <strong>Jadwal parsial:</strong> ${ganttData.errors.map(escHtml).join(" ")}
+      </div>`
+    : "";
+
+  // ── Detail table HTML ──────────────────────────────────────────────────────
+  const detailRows = tasks.map((t) => {
+    const startLabel = t.startDateStr || `Minggu ${t.startWeek}`;
+    const endLabel   = t.endDateStr   || `Minggu ${t.endWeek}`;
+    const children = tasks.filter((child) => child.parentId === t.id);
+    const toggle = children.length
+      ? `<button type="button" data-gantt-toggle="${escHtml(t.id)}" aria-expanded="false"
+          aria-label="Tampilkan turunan WBS ${escHtml(t.id)}" class="mr-1 text-indigo-600 hover:text-indigo-900 font-bold">+</button>`
+      : "";
+    const predecessorLabel = (t.dependencies || []).map((dependency) => {
+      const predecessor = taskById.get(dependency.predecessorId);
+      return predecessor ? `${dependency.predecessorId} ${predecessor.name}` : dependency.predecessorId;
+    }).join("; ");
+    const dependencyLabel = (t.dependencies || []).map((dependency) => dependency.type).join("; ");
+    const lagLabel = (t.dependencies || []).map((dependency) =>
+      `${dependency.lagWeeks > 0 ? "+" : ""}${dependency.lagWeeks}`
+    ).join("; ");
+    const rowType = t.isBuffer ? "Buffer (non-kerja)" : t.type || "WBS";
+    const rowClass = t.isBuffer ? "border-b border-slate-100 bg-slate-50 opacity-70" : "border-b border-slate-100";
+    const hidden = Number(t.level) > 1 ? ' style="display:none"' : "";
+    return `<tr class="${rowClass}" data-gantt-row-id="${escHtml(t.id)}" data-gantt-parent-id="${escHtml(t.parentId || "")}"${hidden}>
+      <td class="px-3 py-2 font-mono text-xs text-slate-500">${escHtml(t.isBuffer ? "—" : t.wbsId || t.id)}</td>
+      <td class="px-3 py-2 text-sm ${t.isBuffer ? "text-slate-400 italic" : "text-slate-700 font-medium"}" style="padding-left:${12 + Math.max(0, Number(t.level) - 1) * 16}px">${toggle}${escHtml(t.name)}</td>
+      <td class="px-3 py-2 text-xs text-slate-600">${escHtml(rowType)}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">${escHtml(startLabel)}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">${escHtml(endLabel)}</td>
+      <td class="px-3 py-2 text-xs text-slate-500 text-center">${t.durationWeeks} minggu</td>
+      <td class="px-3 py-2 text-xs text-slate-600">${escHtml(predecessorLabel || "—")}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 text-center">${escHtml(dependencyLabel || "—")}</td>
+      <td class="px-3 py-2 text-xs text-slate-600 text-center">${escHtml(lagLabel || "0")}</td>
+      <td class="px-3 py-2 text-xs text-slate-400 italic">${escHtml(t.scheduleBasis || t.assumption || "Estimasi sistem.")}</td>
+    </tr>`;
+  }).join("");
+
+  container.innerHTML = `
+    ${scheduleWarnings}
+    <!-- Disclaimer -->
+    <div class="flex items-start gap-2 p-3 mb-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+      <svg class="w-4 h-4 shrink-0 mt-0.5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span>${disclaimer}</span>
+    </div>
+
+    <!-- Gantt SVG (scrollable) -->
+    <div class="gantt-scroll-wrap" style="overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid #e2e8f0; border-radius:12px; background:#fff;">
+      <svg id="gantt-svg" xmlns="http://www.w3.org/2000/svg"
+        width="${SVG_W}" height="${SVG_H}"
+        viewBox="0 0 ${SVG_W} ${SVG_H}"
+        role="img" aria-label="Gantt Chart Proyek"
+        style="display:block; min-width:${SVG_W}px;">
+        <title>Gantt Chart — Jadwal Proyek</title>
+        ${svgContent}
+      </svg>
+    </div>
+
+    <!-- Detail table -->
+    <div class="mt-5">
+      <p class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-2">Rincian Jadwal WBS</p>
+      <div class="table-wrap rounded-xl border border-slate-200 overflow-hidden">
+        <table class="data-table w-full text-sm border-collapse">
+          <thead>
+            <tr class="bg-indigo-600 text-white text-left text-xs font-semibold uppercase tracking-wide">
+              <th class="px-3 py-2.5">WBS ID</th>
+              <th class="px-3 py-2.5">Task</th>
+              <th class="px-3 py-2.5">Type</th>
+              <th class="px-3 py-2.5 whitespace-nowrap">Start Date (inclusive)</th>
+              <th class="px-3 py-2.5 whitespace-nowrap">Finish Date (exclusive)</th>
+              <th class="px-3 py-2.5 text-center">Duration</th>
+              <th class="px-3 py-2.5">Predecessor</th>
+              <th class="px-3 py-2.5">Dependency Type</th>
+              <th class="px-3 py-2.5">Lag/Lead (weeks)</th>
+              <th class="px-3 py-2.5">Schedule Basis</th>
+            </tr>
+          </thead>
+          <tbody>${detailRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  const descendantsByParent = new Map();
+  for (const task of tasks) {
+    if (!task.parentId) continue;
+    if (!descendantsByParent.has(task.parentId)) descendantsByParent.set(task.parentId, []);
+    descendantsByParent.get(task.parentId).push(task);
+  }
+  container.querySelectorAll("[data-gantt-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const taskId = button.dataset.ganttToggle;
+      const expanded = button.getAttribute("aria-expanded") === "true";
+      const directChildren = descendantsByParent.get(taskId) || [];
+      const updateDescendants = (parentId, visible) => {
+        for (const child of descendantsByParent.get(parentId) || []) {
+          const chartRow = [...container.querySelectorAll("[data-gantt-task-id]")]
+            .find((element) => element.dataset.ganttTaskId === child.id);
+          const tableRow = [...container.querySelectorAll("[data-gantt-row-id]")]
+            .find((element) => element.dataset.ganttRowId === child.id);
+          const dependencyLines = [...container.querySelectorAll("[data-gantt-dependency-task-id]")]
+            .filter((element) => element.dataset.ganttDependencyTaskId === child.id);
+          if (chartRow) chartRow.style.display = visible ? "" : "none";
+          if (tableRow) tableRow.style.display = visible ? "table-row" : "none";
+          dependencyLines.forEach((element) => {
+            element.style.display = visible ? "" : "none";
+          });
+          if (!visible) {
+            const childToggle = [...container.querySelectorAll("[data-gantt-toggle]")]
+              .find((element) => element.dataset.ganttToggle === child.id);
+            if (childToggle) {
+              childToggle.setAttribute("aria-expanded", "false");
+              childToggle.textContent = "+";
+            }
+            updateDescendants(child.id, false);
+          }
+        }
+      };
+      for (const child of directChildren) {
+        const chartRow = [...container.querySelectorAll("[data-gantt-task-id]")]
+          .find((element) => element.dataset.ganttTaskId === child.id);
+        const tableRow = [...container.querySelectorAll("[data-gantt-row-id]")]
+          .find((element) => element.dataset.ganttRowId === child.id);
+        const dependencyLines = [...container.querySelectorAll("[data-gantt-dependency-task-id]")]
+          .filter((element) => element.dataset.ganttDependencyTaskId === child.id);
+        if (chartRow) chartRow.style.display = expanded ? "none" : "";
+        if (tableRow) tableRow.style.display = expanded ? "none" : "table-row";
+        dependencyLines.forEach((element) => {
+          element.style.display = expanded ? "none" : "";
+        });
+        if (expanded) {
+          const childToggle = [...container.querySelectorAll("[data-gantt-toggle]")]
+            .find((element) => element.dataset.ganttToggle === child.id);
+          if (childToggle) {
+            childToggle.setAttribute("aria-expanded", "false");
+            childToggle.textContent = "+";
+          }
+          updateDescendants(child.id, false);
+        }
+      }
+      button.setAttribute("aria-expanded", String(!expanded));
+      button.textContent = expanded ? "+" : "−";
+    });
+  });
+}
+
+// ── Render dokumen ──────────────────────────────────────────────────────────
+
+  return Object.freeze({
+    renderGantt
+  });
+});

@@ -45,3 +45,15 @@ test("project store tracks active module and mobile navigation without document 
   projectStore.setMobileNavigationOpen(false);
   projectStore.setActiveUiModule("workspace");
 });
+
+test("project store publishes document changes for derived workspace views", () => {
+  const changes = [];
+  const unsubscribe = projectStore.subscribe((change) => changes.push(change.type));
+  const document = { cost_summary: { grand_total: 125 } };
+  projectStore.setDocument(document);
+  projectStore.notifyDocumentUpdated();
+  unsubscribe();
+  projectStore.setDocument(null);
+
+  assert.deepEqual(changes, ["document", "document-updated"]);
+});
