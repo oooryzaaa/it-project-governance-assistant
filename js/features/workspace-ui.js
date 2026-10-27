@@ -49,58 +49,138 @@
     const input = store.getLastAcceptedInput() || {};
     const deliverables = Array.isArray(charter.deliverables) ? charter.deliverables.length : 0;
     const risks = Array.isArray(doc.risk_register) ? doc.risk_register.length : 0;
-    const total = Number(doc.cost_summary?.grand_total);
+    const totalValue = doc.cost_summary?.grand_total;
+    const total = totalValue === null || totalValue === undefined || !Number.isFinite(Number(totalValue))
+      ? null
+      : Number(totalValue);
     const duration = input.duration ?? "—";
-    const cards = [
-      ["Mulai", formatDate(charter.start_date || input.startDate)],
-      ["Selesai", formatDate(charter.finish_date)],
-      ["Durasi", duration === "—" ? duration : `${duration} minggu`],
-      ["Deliverable", String(deliverables)],
-      ["Estimasi biaya", Number.isFinite(total) ? `Rp ${total.toLocaleString("id-ID")}` : "Belum tersedia"],
-      ["Risiko terdaftar", String(risks)],
+    const projectName = charter.project_title || input.projectName || "Proyek tanpa nama";
+    const governanceScore = Number(doc._governance?.percentage);
+    const governanceMarkup = Number.isFinite(governanceScore)
+      ? `<section class="overview-panel overview-governance-panel">
+          <div class="overview-panel-heading">
+            <div><h4>Governance review</h4><p>Indicative planning score · not an audit result</p></div>
+            <span class="overview-score">${escapeHtml(`${governanceScore}%`)}</span>
+          </div>
+          <a href="#section-governance" data-workspace-link="governance" class="overview-panel-link">Review COBIT 2019 mapping <span aria-hidden="true">→</span></a>
+        </section>`
+      : "";
+    const metrics = [
+      { label: "Duration", value: duration === "—" ? duration : `${duration} weeks`, icon: "◷", tone: "indigo" },
+      { label: "Deliverables", value: String(deliverables), icon: "▤", tone: "teal" },
+      { label: "Risks identified", value: String(risks), icon: "◇", tone: "amber" },
+      { label: "Estimated total", value: total === null ? "Not available" : `Rp ${total.toLocaleString("id-ID")}`, icon: "Rp", tone: "blue" },
+    ];
+    const documentLinks = [
+      ["charter", "Project Charter", "Project scope, objectives and stakeholders"],
+      ["wbs", "Work Breakdown Structure", "Deliverables and work packages"],
+      ["gantt", "Gantt Chart", "Estimated timeline and dependencies"],
+      ["risk", "Risk Register", "Contextual project risks"],
+      ["cost", "Cost Estimation", "Editable estimate and budget health"],
+      ["assumptions", "Assumptions", "Planning assumptions to validate"],
+      ["governance", "COBIT 2019 Review", "Indicative objective mapping"],
     ];
     container.innerHTML = `
-      <div class="mb-5">
-        <p class="text-xs font-semibold uppercase tracking-widest text-slate-400">Ringkasan proyek</p>
-        <h3 class="mt-1 text-xl font-bold text-slate-800">${escapeHtml(charter.project_title || input.projectName || "Proyek tanpa nama")}</h3>
-      </div>
-      <dl class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        ${cards.map(([label, value]) => `<div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <dt class="text-xs font-medium text-slate-500">${label}</dt>
-          <dd class="mt-1 text-base font-semibold text-slate-800">${escapeHtml(value)}</dd>
-        </div>`).join("")}
-      </dl>
-      <div id="overview-budget-health" class="mt-4"></div>
-      <div class="mt-6">
-        <h4 class="text-sm font-bold text-slate-700">Dokumen proyek</h4>
-        <div class="mt-3 flex flex-wrap gap-2">
-          ${Object.entries(modules).filter(([id]) => id !== "overview").map(([id, module]) => {
-            const label = id === "governance" ? "COBIT Review" : id === "risk" ? "Risk Register" :
-              id === "cost" ? "Estimasi Biaya" : id === "wbs" ? "WBS" :
-              id === "gantt" ? "Gantt Chart" : id === "assumptions" ? "Asumsi" : "Project Charter";
-            return `<a href="${module.hash}" data-workspace-link="${id}" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500">${label}</a>`;
-          }).join("")}
+      <div class="overview-dashboard">
+        <section class="overview-project-card">
+          <div class="overview-project-heading">
+            <div>
+              <p class="overview-eyebrow">Project snapshot</p>
+              <h3>${escapeHtml(projectName)}</h3>
+              <p class="overview-project-description">Generated planning documents and current estimate for this project.</p>
+            </div>
+            <a href="#section-charter" data-workspace-link="charter" class="overview-primary-link">Open project charter <span aria-hidden="true">→</span></a>
+          </div>
+          <dl class="overview-metrics">
+            ${metrics.map((metric) => `<div class="overview-metric-card">
+              <span class="overview-metric-icon overview-tone-${metric.tone}" aria-hidden="true">${metric.icon}</span>
+              <dt>${metric.label}</dt>
+              <dd>${escapeHtml(metric.value)}</dd>
+            </div>`).join("")}
+          </dl>
+        </section>
+
+        <div class="overview-detail-grid">
+          <section class="overview-panel overview-schedule-panel">
+            <div class="overview-panel-heading">
+              <div><h4>Planned schedule</h4><p>Dates from the current Project Charter and schedule</p></div>
+              <a href="#section-gantt" data-workspace-link="gantt" class="overview-text-link">View Gantt</a>
+            </div>
+            <div class="overview-date-range">
+              <div><span>Planned start</span><strong>${escapeHtml(formatDate(charter.start_date || input.startDate))}</strong></div>
+              <span class="overview-date-arrow" aria-hidden="true">→</span>
+              <div><span>Planned finish</span><strong>${escapeHtml(formatDate(charter.finish_date))}</strong></div>
+            </div>
+            <div class="overview-schedule-meta">
+              <span>${escapeHtml(duration === "—" ? duration : `${duration} weeks`)}</span>
+              <span>${deliverables} deliverable${deliverables === 1 ? "" : "s"}</span>
+            </div>
+          </section>
+
+          <section class="overview-panel overview-budget-panel">
+            <div class="overview-panel-heading">
+              <div><h4>Budget health</h4><p>Compared with the project budget provided</p></div>
+              <span class="overview-panel-icon" aria-hidden="true">Rp</span>
+            </div>
+            <div id="overview-budget-health"></div>
+            <a href="#section-cost" data-workspace-link="cost" class="overview-panel-link">Review cost estimate <span aria-hidden="true">→</span></a>
+          </section>
+          ${governanceMarkup}
         </div>
-      </div>
-      <div class="mt-6">
-        <h4 class="text-sm font-bold text-slate-700">Ekspor CSV</h4>
-        <div class="mt-3 flex flex-wrap gap-2">
+
+        <section class="overview-panel overview-documents-panel">
+          <div class="overview-panel-heading">
+            <div><h4>Project documents</h4><p>Open a module to review the generated detail</p></div>
+          </div>
+          <div class="overview-document-grid">
+            ${documentLinks.map(([id, label, description]) => `<a href="${modules[id].hash}" data-workspace-link="${id}" class="overview-document-link">
+              <span class="overview-document-mark" aria-hidden="true">${escapeHtml(label.slice(0, 1))}</span>
+              <span><strong>${label}</strong><small>${description}</small></span>
+              <span class="overview-document-arrow" aria-hidden="true">↗</span>
+            </a>`).join("")}
+          </div>
+        </section>
+
+        <section class="overview-panel overview-export-panel">
+          <div class="overview-panel-heading">
+            <div><h4>Export documents</h4><p>Download the latest generated or edited values as CSV</p></div>
+          </div>
+          <div class="overview-export-actions">
           ${["charter", "wbs", "risk", "cost", "gantt", "governance"].map((id) => {
             const label = id === "charter" ? "Project Charter" : id === "wbs" ? "WBS" :
-              id === "risk" ? "Risk Register" : id === "cost" ? "Biaya" :
-              id === "gantt" ? "Gantt" : "COBIT";
-            const section = id === "governance" ? "governance" : id;
-            return `<button type="button" data-export-section="${section}" class="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500">Ekspor ${label}</button>`;
+              id === "risk" ? "Risk Register" : id === "cost" ? "Cost Estimation" :
+              id === "gantt" ? "Gantt Chart" : "COBIT Review";
+            return `<button type="button" data-export-section="${id}" class="overview-export-button">${label}</button>`;
           }).join("")}
-        </div>
+          </div>
+        </section>
       </div>`;
     const budgetHealth = root.document.getElementById("budget-status");
     const overviewBudgetHealth = root.document.getElementById("overview-budget-health");
-    if (budgetHealth && overviewBudgetHealth) overviewBudgetHealth.innerHTML = budgetHealth.innerHTML;
+    if (budgetHealth && overviewBudgetHealth) {
+      overviewBudgetHealth.innerHTML = budgetHealth.innerHTML.replace(
+        'id="budget-status"',
+        'class="budget-status-copy"',
+      );
+    }
   }
 
   function applyActiveModule() {
     const active = store.getActiveUiModule();
+    const moduleTitles = {
+      overview: "Overview",
+      charter: "Project Charter",
+      wbs: "Work Breakdown Structure",
+      gantt: "Gantt Chart",
+      risk: "Risk Register",
+      cost: "Cost Estimation",
+      assumptions: "Assumptions",
+      governance: "COBIT 2019 Review",
+    };
+    const contextTitle = root.document.getElementById("workspace-context-title");
+    if (contextTitle) contextTitle.textContent = store.getDocument()
+      ? moduleTitles[active] || "Project workspace"
+      : "New project";
     for (const [id, module] of Object.entries(modules)) {
       const section = root.document.getElementById(module.sectionId);
       const link = root.document.getElementById(module.navId);

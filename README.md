@@ -1,4 +1,4 @@
-# Asisten Tata Kelola Proyek TI
+# Project Governance Assistant
 
 A vanilla JavaScript and Node.js application for planning and reviewing IT projects. It generates a Project Charter, deliverable-driven Work Breakdown Structure (WBS), detailed WBS-based Gantt schedule, contextual Risk Register, editable Cost Estimation, assumptions, and an indicative COBIT 2019 governance review.
 
