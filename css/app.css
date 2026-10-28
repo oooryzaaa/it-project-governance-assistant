@@ -197,6 +197,158 @@ body {
   #output-section [data-workspace-module="overview"] {
     display: none !important;
   }
+
+  #output-section [data-workspace-module="projects"] {
+    display: none !important;
+  }
+}
+
+.project-save-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.project-toolbar-button,
+.projects-action {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 10px;
+  border: 1px solid #d8deea;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.project-toolbar-button:hover,
+.projects-action:hover {
+  border-color: #c7d2fe;
+  background: #f5f6ff;
+  color: #3730a3;
+}
+.project-toolbar-button:focus-visible,
+.projects-action:focus-visible,
+.project-import-label:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+.project-toolbar-button:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+#project-save {
+  border-color: #4f46e5;
+  background: #4f46e5;
+  color: #fff;
+}
+#project-save:hover:not(:disabled) {
+  border-color: #4338ca;
+  background: #4338ca;
+  color: #fff;
+}
+.project-import-label { cursor: pointer; }
+#project-close-current {
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+#project-close-current:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
+}
+.saved-project-list {
+  display: grid;
+  gap: 10px;
+}
+.saved-project-card {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+}
+.saved-project-details { min-width: 0; }
+.saved-project-details h3 {
+  overflow: hidden;
+  color: #17243b;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+.saved-project-details p {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+}
+.saved-project-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.projects-action[data-project-action="delete"] { color: #b91c1c; }
+.projects-action[data-project-action="delete"]:hover {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+.projects-empty {
+  padding: 26px 18px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+}
+.project-name-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 15px;
+  color: #17243b;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .24);
+}
+.project-name-dialog::backdrop { background: rgba(15, 23, 42, .46); }
+.project-name-dialog form { display: grid; gap: 10px; padding: 24px; }
+.project-name-dialog h2 { font-size: 17px; font-weight: 750; }
+.project-name-dialog label { color: #475569; font-size: 12px; font-weight: 650; }
+#project-name-dialog-input {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+}
+#project-name-dialog-input:focus-visible { outline: 2px solid #6366f1; outline-offset: 1px; }
+#project-name-dialog-error { min-height: 16px; color: #b91c1c; font-size: 11px; }
+.project-name-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.project-name-submit { border-color: #4f46e5; background: #4f46e5; color: #fff; }
+
+@media (max-width: 900px) {
+  .project-save-controls { gap: 4px; }
+  .project-toolbar-button { padding-inline: 8px; }
+  .saved-project-card { align-items: flex-start; flex-direction: column; }
+  .saved-project-actions { justify-content: flex-start; }
+}
+
+@media (max-width: 560px) {
+  .app-header-inner { gap: 8px; }
+  .project-save-as { display: none; }
+  .project-save-controls .project-toolbar-button { min-height: 32px; padding: 6px 8px; }
+  .saved-project-actions { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .saved-project-actions .projects-action { width: 100%; }
 }
 
 :root {

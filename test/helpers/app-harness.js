@@ -134,6 +134,7 @@ function createAppHarness() {
           currentDoc,
           currentInput,
           costEdited,
+          projectDirty: projectStore.isProjectDirty(),
           generationRequestId,
           generationStatus: projectStore.getGenerationStatus(),
           activeUiModule: projectStore.getActiveUiModule(),
@@ -145,6 +146,7 @@ function createAppHarness() {
         if ("currentDoc" in values) currentDoc = values.currentDoc;
         if ("currentInput" in values) currentInput = values.currentInput;
         if ("costEdited" in values) costEdited = values.costEdited;
+        if ("projectDirty" in values) projectStore.setProjectDirty(values.projectDirty);
         if ("generationRequestId" in values) generationRequestId = values.generationRequestId;
       },
     };

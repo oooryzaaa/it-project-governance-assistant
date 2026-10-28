@@ -10,6 +10,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
   const store = root.GovPlanProjectStore;
   const modules = {
+    projects: { sectionId: "section-projects", hash: "#projects", navId: "nav-projects" },
     overview: { sectionId: "section-overview", hash: "#overview", navId: "nav-overview" },
     charter: { sectionId: "section-charter", hash: "#section-charter", navId: "nav-charter" },
     wbs: { sectionId: "section-wbs", hash: "#section-wbs", navId: "nav-wbs" },
@@ -168,6 +169,7 @@
   function applyActiveModule() {
     const active = store.getActiveUiModule();
     const moduleTitles = {
+      projects: "My Projects",
       overview: "Overview",
       charter: "Project Charter",
       wbs: "Work Breakdown Structure",
@@ -184,7 +186,7 @@
     for (const [id, module] of Object.entries(modules)) {
       const section = root.document.getElementById(module.sectionId);
       const link = root.document.getElementById(module.navId);
-      const visible = id === active && Boolean(store.getDocument());
+      const visible = id === active && (id === "projects" || Boolean(store.getDocument()));
       if (section) {
         section.classList.toggle("hidden", !visible);
         section.setAttribute("aria-hidden", String(!visible));
@@ -236,14 +238,18 @@
       if (root.location.hash !== hash) root.history.pushState(null, "", hash);
     }
     if (store.isMobileNavigationOpen()) closeMobileNavigation(false);
-    if (store.getDocument()) root.document.getElementById(modules[moduleId].sectionId)?.focus();
+    if (moduleId === "projects" || store.getDocument()) {
+      root.document.getElementById(modules[moduleId].sectionId)?.focus();
+    }
   }
 
   function onStoreChange(change) {
-    if (change.type === "document" || change.type === "document-updated" || change.type === "input") {
+    if (change.type === "document" || change.type === "document-updated" ||
+        change.type === "input" || change.type === "project-restored") {
       renderOverview();
     }
-    if (change.type === "active-module" || change.type === "document") applyActiveModule();
+    if (change.type === "active-module" || change.type === "document" ||
+        change.type === "project-restored" || change.type === "project-closed") applyActiveModule();
     if (change.type === "mobile-navigation") {
       const sidebar = root.document.getElementById("workspace-sidebar");
       const backdrop = root.document.getElementById("nav-backdrop");

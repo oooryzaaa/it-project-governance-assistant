@@ -466,6 +466,7 @@ test("cancelled template regeneration preserves the current document and cost ed
   assert.equal(api.state.currentDoc, doc);
   assert.equal(api.state.currentDoc.cost_estimate[0].row_total, 123);
   assert.equal(api.state.costEdited, true);
+  app.setConfirmResponse(true);
 });
 
 test("Template generation updates the canonical store and calendar utilities preserve behavior", async () => {
@@ -486,7 +487,13 @@ test("Template generation updates the canonical store and calendar utilities pre
   for (const [id, value] of Object.entries(formValues)) {
     app.setElement(id, createElement({ value }));
   }
-  api.setState({ currentDoc: null, currentInput: null, costEdited: false, generationRequestId: 0 });
+  api.setState({
+    currentDoc: null,
+    currentInput: null,
+    costEdited: false,
+    projectDirty: false,
+    generationRequestId: 0,
+  });
 
   await api.onGenerateTemplate();
 

@@ -8,6 +8,7 @@ const PUBLIC_ASSETS = new Set([
   "/css/gantt.css",
   "/js/core/utils.js",
   "/js/core/project-store.js",
+  "/js/core/project-persistence.js",
   "/js/features/risks.js",
   "/js/features/template.js",
   "/js/features/cobit.js",
@@ -22,6 +23,7 @@ const PUBLIC_ASSETS = new Set([
   "/js/features/status-ui.js",
   "/js/features/export-ui.js",
   "/js/features/workspace-ui.js",
+  "/js/features/projects-ui.js",
 ]);
 
 function isPublicAssetPath(requestPath) {

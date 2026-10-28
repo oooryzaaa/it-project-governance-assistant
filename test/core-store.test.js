@@ -57,3 +57,33 @@ test("project store publishes document changes for derived workspace views", () 
 
   assert.deepEqual(changes, ["document", "document-updated"]);
 });
+
+test("project store restores and closes projects without leaving dirty or pending state", () => {
+  const pendingRequest = projectStore.beginAIGeneration({ projectName: "Pending" });
+  projectStore.restoreProject({
+    id: "saved-project",
+    input: { projectName: "Restored" },
+    document: { charter: { project_title: "Restored" } },
+    generationMode: "template",
+    costEdited: true,
+    activeModule: "gantt",
+  });
+
+  assert.equal(projectStore.isCurrentRequest(pendingRequest), false);
+  assert.equal(projectStore.getProjectId(), "saved-project");
+  assert.equal(projectStore.getLastAcceptedInput().projectName, "Restored");
+  assert.equal(projectStore.getDocument().charter.project_title, "Restored");
+  assert.equal(projectStore.getGenerationStatus(), "ready");
+  assert.equal(projectStore.getCostEdited(), true);
+  assert.equal(projectStore.getActiveUiModule(), "gantt");
+  assert.equal(projectStore.isProjectDirty(), false);
+
+  projectStore.notifyDocumentUpdated();
+  assert.equal(projectStore.isProjectDirty(), true);
+  projectStore.closeProject();
+  assert.equal(projectStore.getProjectId(), null);
+  assert.equal(projectStore.getDocument(), null);
+  assert.equal(projectStore.getLastAcceptedInput(), null);
+  assert.equal(projectStore.getActiveUiModule(), "projects");
+  assert.equal(projectStore.isProjectDirty(), false);
+});

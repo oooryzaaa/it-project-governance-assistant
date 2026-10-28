@@ -43,6 +43,10 @@
 
     <!-- Right cluster -->
     <div class="flex items-center gap-3 shrink-0">
+      <div class="project-save-controls no-print">
+        <button id="project-save" type="button" class="project-toolbar-button" disabled>Save</button>
+        <button id="project-save-as" type="button" class="project-toolbar-button project-save-as" disabled>Save as</button>
+      </div>
       <button id="mobile-nav-toggle" type="button" class="lg:hidden inline-flex items-center justify-center w-10 h-10 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" aria-label="Buka navigasi dokumen" aria-controls="workspace-sidebar" aria-expanded="false">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
@@ -83,6 +87,13 @@
     <p class="sidebar-section-label">Workspace</p>
     <nav>
       <ul class="space-y-0.5" id="sidebar-nav">
+        <li>
+          <a id="nav-projects" href="#projects" data-workspace-link="projects"
+            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-400 hover:bg-blue-50 hover:text-blue-700 transition group">
+            <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke-width="1.8"/><path d="M8 8h8M8 12h8M8 16h4" stroke-linecap="round" stroke-width="1.8"/></svg></span>
+            My Projects
+          </a>
+        </li>
         <li>
           <a id="nav-input" href="#section-form"
             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-700 transition group">
@@ -550,6 +561,29 @@
     <!-- ════════════════════════════════════════════════════════════════ -->
     <div id="output-section" class="space-y-6">
 
+      <section id="section-projects" data-workspace-module="projects"
+        class="hidden no-print section-reveal bg-white rounded-2xl shadow-sm border border-slate-200"
+        aria-labelledby="projects-heading" aria-hidden="true" tabindex="-1">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 pt-6 pb-4 border-b border-slate-100">
+          <div>
+            <h2 id="projects-heading" class="text-base font-bold text-slate-800">My Projects</h2>
+            <p class="mt-1 text-xs text-slate-500">Saved projects stay in this browser profile; they are not cloud-synced.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="project-close-current" type="button" class="project-toolbar-button" disabled>Close current project</button>
+            <button id="project-export-current" type="button" class="project-toolbar-button">Export current project JSON</button>
+            <label for="project-import-file" class="project-toolbar-button project-import-label">Import JSON</label>
+            <input id="project-import-file" type="file" accept="application/json,.json" class="sr-only" aria-label="Import project backup JSON">
+          </div>
+        </div>
+        <div class="px-6 py-5">
+          <p id="project-save-state" class="mb-3 text-xs text-slate-500" aria-live="polite">No project open</p>
+          <p id="projects-status" class="mb-4 text-xs text-slate-500" role="status" aria-live="polite"></p>
+          <div id="projects-list" class="saved-project-list"></div>
+          <p class="mt-4 text-xs text-slate-400">Local browser storage can be removed when browser data is cleared. Export JSON backups to keep a separate copy.</p>
+        </div>
+      </section>
+
       <section id="section-overview" data-workspace-module="overview"
         class="hidden section-reveal card-accent accent-navy bg-white rounded-2xl shadow-sm border border-slate-200"
         aria-labelledby="overview" aria-hidden="true">
@@ -856,9 +890,23 @@
   </main>
 </div><!-- /.app-layout -->
 
-<!-- Classic scripts preserve both HTTP and file:// Template Mode compatibility. -->
+  <dialog id="project-name-dialog" class="project-name-dialog no-print" aria-labelledby="project-name-dialog-title">
+    <form id="project-name-form">
+      <h2 id="project-name-dialog-title">Project name</h2>
+      <label for="project-name-dialog-input">Name</label>
+      <input id="project-name-dialog-input" type="text" maxlength="200" required autocomplete="off">
+      <p id="project-name-dialog-error" aria-live="polite"></p>
+      <div class="project-name-dialog-actions">
+        <button id="project-name-cancel" type="button" class="project-toolbar-button">Cancel</button>
+        <button type="submit" class="project-toolbar-button project-name-submit">Continue</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Classic scripts preserve both HTTP and file:// Template Mode compatibility. -->
 <script src="js/core/utils.js"></script>
 <script src="js/core/project-store.js"></script>
+<script src="js/core/project-persistence.js"></script>
 <script src="js/features/risks.js"></script>
 <script src="js/features/template.js"></script>
 <!-- cobit-data.js must load before app.js -->
@@ -875,6 +923,7 @@
 <script src="js/features/status-ui.js"></script>
 <script src="js/features/export-ui.js"></script>
 <script src="js/features/workspace-ui.js"></script>
+<script src="js/features/projects-ui.js"></script>
 <script src="app.js"></script>
 
 </body>

@@ -176,9 +176,9 @@ function getFormData() {
 }
 
 function confirmCostEditOverwrite(modeName) {
-  if (!projectStore.getCostEdited()) return true;
+  if (!projectStore.getCostEdited() && !projectStore.isProjectDirty()) return true;
   return window.confirm(
-    `Anda telah mengedit Estimasi Biaya.\n\nGenerate ulang dengan ${modeName} akan mengganti semua nilai yang telah diedit.\n\nLanjutkan dan timpa editan?`
+    `Proyek ini memiliki perubahan yang belum disimpan${projectStore.getCostEdited() ? ", termasuk edit Estimasi Biaya" : ""}.\n\nGenerate ulang dengan ${modeName} akan mengganti dokumen proyek saat ini.\n\nLanjutkan dan ganti proyek?`
   );
 }
 
@@ -326,9 +326,76 @@ function onPrint() {
   window.print();
 }
 
+function restoreSavedProject(record) {
+  projectStore.restoreProject(record);
+  clearFallbackNotice();
+  clearAIGenerationState();
+  setCostEditingDisabled(false);
+  const formValues = {
+    "project-name": record.input.projectName,
+    objective: record.input.objective,
+    duration: record.input.duration,
+    "team-size": record.input.teamSize,
+    category: record.input.category,
+    "budget-range": record.input.budgetRange,
+    "start-date": record.input.startDate,
+    "pm-name": record.input.pmName,
+    methodology: record.input.methodology,
+    "key-deliverables": record.input.keyDeliverables,
+    "success-criteria": record.input.successCriteria,
+    "project-context": record.input.projectContext,
+  };
+  for (const [id, value] of Object.entries(formValues)) {
+    const field = $(id);
+    if (field) field.value = value ?? "";
+  }
+  renderBadge(record.generationMode);
+  renderDocument(record.document, record.input);
+  globalThis.GovPlanWorkspaceUI?.navigate(record.activeModule || "overview");
+  projectStore.setProjectDirty(false);
+}
+
+function refreshSavedProjectDocument(document, input) {
+  const projectNameField = $("project-name");
+  if (projectNameField) projectNameField.value = input.projectName || "";
+  const activeModule = projectStore.getActiveUiModule();
+  renderDocument(document, input);
+  globalThis.GovPlanWorkspaceUI?.navigate(activeModule);
+}
+
+function closeCurrentProject() {
+  projectStore.closeProject();
+  $("project-form")?.reset();
+  clearFallbackNotice();
+  clearAIGenerationState();
+  setCostEditingDisabled(false);
+  renderBadge("template");
+  $("budget-status")?.remove();
+  for (const id of [
+    "charter-content", "wbs-tbody", "risk-tbody", "cost-tbody",
+    "assumptions-content", "gantt-content", "cobit-mappings", "kpi-list", "score-content",
+  ]) {
+    const element = $(id);
+    if (element) element.replaceChildren();
+  }
+  $("export-bar")?.classList.add("hidden");
+  globalThis.GovPlanWorkspaceUI?.navigate("projects");
+}
+
+globalThis.GovPlanApp = Object.freeze({
+  restoreSavedProject: restoreSavedProject,
+  refreshSavedProjectDocument,
+  closeCurrentProject,
+});
+
 // ── Bootstrap ───────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   globalThis.GovPlanWorkspaceUI?.init();
+  globalThis.GovPlanProjectsUI?.init({
+    restoreProject: restoreSavedProject,
+    refreshDocument: refreshSavedProjectDocument,
+    closeProject: closeCurrentProject,
+  });
 
   // Badge awal
   renderBadge("template");
